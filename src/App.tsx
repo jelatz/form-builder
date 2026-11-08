@@ -1433,11 +1433,11 @@ export default function App(): ReactElement {
       ...(colSpan ? { colSpan } : {}),
       crmFieldKey: defaultField.crmFieldKey || autoKey,
     };
-    updateActiveSchema((prev) => addField(prev, finalField, index));
-    setSelectedFieldId(finalField.id);
-    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
-      setMobileStudioPane('canvas');
-    }
+    setPendingFieldInsertion({
+      field: finalField,
+      type,
+      index,
+    });
   };
 
   const handleInsertFieldAtTarget = (
@@ -1451,24 +1451,40 @@ export default function App(): ReactElement {
       ...defaultField,
       crmFieldKey: defaultField.crmFieldKey || autoKey,
     };
-    updateActiveSchema((prev) =>
-      insertFieldAtTarget(prev, finalField, targetFieldId, position),
-    );
-    setSelectedFieldId(finalField.id);
-    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
-      setMobileStudioPane('canvas');
-    }
+    setPendingFieldInsertion({
+      field: finalField,
+      type,
+      insertTarget: {
+        targetFieldId,
+        position,
+      },
+    });
   };
 
-  const handleConfirmNewField = (label: string, webhookKey: string): void => {
+  const handleConfirmNewField = (
+    label: string,
+    webhookKey: string,
+    selectedType?: FieldType,
+    required?: boolean,
+  ): void => {
     if (!pendingFieldInsertion) return;
 
     const { field, insertTarget, index } = pendingFieldInsertion;
+    const activeType = selectedType ?? pendingFieldInsertion.type;
+    const baseField =
+      activeType === pendingFieldInsertion.type
+        ? field
+        : {
+            ...createFieldByType(activeType),
+            ...(field.colSpan ? { colSpan: field.colSpan } : {}),
+          };
+
     const finalField: FormField = {
-      ...field,
+      ...baseField,
       label,
       crmFieldKey: webhookKey || toSnakeCase(label) || undefined,
-      ...(field.type === 'checkbox' ? { checkboxLabel: label } : {}),
+      required: required !== undefined ? required : baseField.required,
+      ...(baseField.type === 'checkbox' ? { checkboxLabel: label } : {}),
     };
 
     if (insertTarget) {

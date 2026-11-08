@@ -1,23 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactElement } from 'react';
 import type { FieldType } from '../../domain/form-schema/index.ts';
-import { getFieldCatalog } from '../../fields/index.ts';
-import { Button, Input } from '../../shared/ui/index.ts';
+import { createFieldByType, getFieldCatalog } from '../../fields/index.ts';
 import { toSnakeCase } from '../../shared/lib/index.ts';
+import { Button, Input } from '../../shared/ui/index.ts';
 
 export interface NewFieldModalProps {
   isOpen: boolean;
   fieldType: FieldType | null;
   initialLabel?: string;
   onClose: () => void;
-  onConfirm: (label: string, webhookKey: string) => void;
+  onConfirm: (label: string, webhookKey: string, fieldType?: FieldType, required?: boolean) => void;
 }
 
 interface NewFieldModalContentProps {
   fieldType: FieldType;
   initialLabel: string;
   onClose: () => void;
-  onConfirm: (label: string, webhookKey: string) => void;
+  onConfirm: (label: string, webhookKey: string, fieldType?: FieldType, required?: boolean) => void;
 }
 
 function NewFieldModalContent({
@@ -26,10 +26,19 @@ function NewFieldModalContent({
   onClose,
   onConfirm,
 }: NewFieldModalContentProps): ReactElement {
+  const [selectedType, setSelectedType] = useState<FieldType>(fieldType);
+  const [isRequired, setIsRequired] = useState<boolean>(false);
   const [label, setLabel] = useState<string>(initialLabel);
+  const [isLabelCustomized, setIsLabelCustomized] = useState<boolean>(false);
   const [webhookKey, setWebhookKey] = useState<string>(() => toSnakeCase(initialLabel));
   const [isKeyCustomized, setIsKeyCustomized] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent): void => {
@@ -44,10 +53,31 @@ function NewFieldModalContent({
     };
   }, [onClose]);
 
-  const catalogItem = getFieldCatalog().find((item) => item.type === fieldType);
-  const typeDisplay = catalogItem?.paletteLabel ?? (fieldType ? fieldType.charAt(0).toUpperCase() + fieldType.slice(1) : '');
+  const catalog = getFieldCatalog();
+  const catalogItem = catalog.find((item) => item.type === selectedType);
+  const typeDisplay =
+    catalogItem?.paletteLabel ??
+    (selectedType ? selectedType.charAt(0).toUpperCase() + selectedType.slice(1) : '');
+
+  const handleTypeChange = (nextType: FieldType): void => {
+    const currentDefault = createFieldByType(selectedType).label;
+    const nextDefault = createFieldByType(nextType).label;
+
+    setSelectedType(nextType);
+
+    if (!isLabelCustomized || label === currentDefault) {
+      setLabel(nextDefault);
+      if (error) {
+        setError(null);
+      }
+      if (!isKeyCustomized) {
+        setWebhookKey(toSnakeCase(nextDefault));
+      }
+    }
+  };
 
   const handleLabelChange = (nextLabel: string): void => {
+    setIsLabelCustomized(true);
     setLabel(nextLabel);
     if (error) {
       setError(null);
@@ -72,11 +102,11 @@ function NewFieldModalContent({
     e.preventDefault();
     const trimmedLabel = label.trim();
     if (!trimmedLabel) {
-      setError('Question name is required.');
+      setError('Question / Field label is required.');
       return;
     }
     const finalKey = webhookKey.trim() || toSnakeCase(trimmedLabel) || 'field';
-    onConfirm(trimmedLabel, finalKey);
+    onConfirm(trimmedLabel, finalKey, selectedType, isRequired);
   };
 
   return (
@@ -99,10 +129,10 @@ function NewFieldModalContent({
             </div>
             <div>
               <h3 id="new-field-modal-title" className="text-sm font-semibold text-zinc-950 dark:text-zinc-100">
-                Add {typeDisplay || 'Question'}
+                Add {typeDisplay || 'Field'}
               </h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Name your question to add it to the form.
+                Choose the field type and specify what this field should ask.
               </p>
             </div>
           </div>
@@ -120,21 +150,54 @@ function NewFieldModalContent({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Field Type Selector */}
+          <div className="space-y-1.5">
+            <label htmlFor="new-field-type-select" className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
+              Field Type
+            </label>
+            <select
+              id="new-field-type-select"
+              value={selectedType}
+              onChange={(e) => handleTypeChange(e.target.value as FieldType)}
+              className="h-9 w-full rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 text-xs text-zinc-900 dark:text-zinc-100 font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-950 dark:focus-visible:ring-zinc-300 shadow-sm"
+            >
+              {catalog.map((item) => (
+                <option key={item.type} value={item.type}>
+                  {item.paletteLabel}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Field Label Input */}
           <div className="space-y-1.5">
             <label htmlFor="new-field-label-input" className="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
               Question / Field Label <span className="text-rose-500">*</span>
             </label>
             <Input
+              ref={inputRef}
               id="new-field-label-input"
-              autoFocus
               type="text"
               value={label}
               onChange={(e) => handleLabelChange(e.target.value)}
               placeholder={`e.g. ${catalogItem?.paletteLabel ?? 'Full Name'}`}
               className="w-full text-xs"
+              error={!!error}
             />
             {error && <p className="text-[11px] text-rose-500 font-medium">{error}</p>}
+          </div>
+
+          {/* Required Question Toggle */}
+          <div>
+            <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-zinc-700 dark:text-zinc-300 select-none">
+              <input
+                type="checkbox"
+                checked={isRequired}
+                onChange={(e) => setIsRequired(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700 text-zinc-950 dark:text-zinc-100 focus:ring-zinc-950 dark:focus:ring-zinc-300"
+              />
+              <span>Required field</span>
+            </label>
           </div>
 
           {/* Advanced CRM / Export Settings (Optional) */}
@@ -193,7 +256,7 @@ function NewFieldModalContent({
               Cancel
             </Button>
             <Button type="submit" variant="primary" size="sm" disabled={!label.trim()}>
-              Add Question
+              Add Field
             </Button>
           </div>
         </form>
