@@ -1,9 +1,44 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Defensive overlay protection against external browser extension frames/popups outside #root */
+body > *:not(#root):not(script):not(style),
+html > *:not(head):not(body) {
+  pointer-events: none !important;
+}
+
+#root {
+  isolation: isolate;
+}
+
 html, body, #root {
-  width: 100%;
-  max-width: 100%;
-  overflow-x: hidden;
-  margin: 0;
-  padding: 0;
+  min-height: 100%;
+  color-scheme: light;
+}
+
+body {
+  background-color: #f4f5f7;
+  color: #18181b;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Subtle scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
 }

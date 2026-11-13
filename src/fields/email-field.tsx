@@ -1,107 +1,124 @@
-import type { ReactNode } from 'react';
-import type { EmailFieldConfig } from '../domain/form-schema/index.ts';
-import type { FieldDefinition, FieldInspectorProps, FieldRenderProps } from './types.ts';
-import { cn, generateId } from '../shared/lib/index.ts';
+import { Input, Label, Switch } from '../shared/ui';
+import { BaseInspectorSection, FieldFrame } from './field-frame';
+import type { FieldDefinition } from './types';
 
-function renderEmailInput({
-  field,
-  value,
-  onChange,
-  error,
-  disabled,
-}: FieldRenderProps<EmailFieldConfig>): ReactNode {
-  const textValue = typeof value === 'string' ? value : '';
-
-  return (
-    <div className="relative w-full">
-      <input
-        id={field.id}
-        name={field.id}
-        type="email"
-        value={textValue}
-        placeholder={field.placeholder}
-        disabled={disabled}
-        autoComplete="email"
-        aria-invalid={Boolean(error)}
-        onChange={(e) => onChange(e.target.value)}
-        className={cn(
-          'h-9 w-full rounded-md border px-3 text-sm bg-white dark:bg-zinc-900 text-zinc-950 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-zinc-50 dark:disabled:bg-zinc-950',
-          error
-            ? 'border-rose-500 text-rose-600 dark:border-rose-400 dark:text-rose-400 focus-visible:ring-rose-500 dark:focus-visible:ring-rose-400'
-            : 'border-zinc-200 dark:border-zinc-800 focus-visible:ring-zinc-950 dark:focus-visible:ring-zinc-300',
-        )}
-      />
-    </div>
-  );
-}
-
-function renderEmailInspector({
-  field,
-  onChange,
-}: FieldInspectorProps<EmailFieldConfig>): ReactNode {
-  return (
-    <div className="space-y-3.5">
-      <div className="flex items-center justify-between pb-2 border-b border-zinc-200 dark:border-zinc-800">
-        <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-          Email Properties
-        </span>
-        <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded-sm">
-          Email
-        </span>
-      </div>
-
-      <div>
-        <label
-          htmlFor={`${field.id}_placeholder`}
-          className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1"
-        >
-          Placeholder
-        </label>
-        <input
-          id={`${field.id}_placeholder`}
-          type="text"
-          value={field.placeholder ?? ''}
-          onChange={(e) => onChange({ ...field, placeholder: e.target.value })}
-          placeholder="e.g. you@company.com"
-          className="h-8 w-full text-xs px-2.5 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-950 dark:focus-visible:ring-zinc-300 shadow-sm transition-colors"
-        />
-      </div>
-
-      <div>
-        <label
-          htmlFor={`${field.id}_defaultValue`}
-          className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1"
-        >
-          Default Value
-        </label>
-        <input
-          id={`${field.id}_defaultValue`}
-          type="email"
-          value={field.defaultValue ?? ''}
-          onChange={(e) => onChange({ ...field, defaultValue: e.target.value })}
-          placeholder="Optional prefilled email"
-          className="h-8 w-full text-xs px-2.5 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-950 dark:focus-visible:ring-zinc-300 shadow-sm transition-colors"
-        />
-      </div>
-    </div>
-  );
-}
-
-export const emailFieldDefinition: FieldDefinition<EmailFieldConfig> = {
+export const emailFieldDefinition: FieldDefinition<'email'> = {
   type: 'email',
-  paletteLabel: 'Email Address',
-  description: 'Validated email input mapped to CRM contact email',
-  badge: '@',
-  createDefault: (): EmailFieldConfig => ({
-    id: generateId('email'),
+  label: 'Email',
+  description: 'Email input with format and optional domain validation.',
+  badge: 'EML',
+  createDefaultConfig: (id) => ({
+    id,
     type: 'email',
-    label: 'Work Email',
-    required: true,
-    placeholder: 'you@company.com',
-    crmFieldKey: 'email',
-    defaultValue: '',
-    helperText: '',
+    label: 'Email',
+    placeholder: '',
+    required: false,
   }),
-  renderInput: renderEmailInput,
-  renderInspector: renderEmailInspector,
+  render: ({ field, value, onChange, error, disabled }) => (
+    <FieldFrame
+      id={field.id}
+      label={field.label}
+      required={field.required}
+      helperText={field.helperText}
+      error={error}
+    >
+      <div className="space-y-2">
+        <div className="relative">
+          <svg
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 pointer-events-none"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.5}
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"
+            />
+          </svg>
+          <Input
+            id={field.id}
+            type="email"
+            value={typeof value === 'string' ? value : ''}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={field.placeholder ?? ''}
+            disabled={disabled}
+            hasError={Boolean(error)}
+            className="pl-8 pr-8"
+          />
+          <span
+            className="absolute right-2 top-1/2 -translate-y-1/2 bg-rose-500 text-white rounded-xs px-1 text-[9px] font-bold leading-tight select-none pointer-events-none"
+            title="Autofill enabled"
+          >
+            •••
+          </span>
+        </div>
+
+        {field.confirmEmail && (
+          <div className="relative">
+            <svg
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 pointer-events-none"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"
+              />
+            </svg>
+            <Input
+              id={`${field.id}_confirm`}
+              type="email"
+              placeholder="Confirm Email"
+              disabled={disabled}
+              className="pl-8"
+            />
+          </div>
+        )}
+      </div>
+    </FieldFrame>
+  ),
+  renderInspector: ({ field, onChange }) => (
+    <div className="space-y-4">
+      <BaseInspectorSection field={field} onChange={onChange} />
+
+      <div className="pt-2 border-t border-zinc-200">
+        <Switch
+          id={`insp_confirm_email_${field.id}`}
+          checked={Boolean(field.confirmEmail)}
+          onChange={(confirmEmail) => onChange({ ...field, confirmEmail })}
+          label="Require Confirm Email input"
+        />
+      </div>
+
+      <div className="space-y-1.5 pt-2 border-t border-zinc-200">
+        <Label htmlFor={`insp_domains_${field.id}`}>
+          Allowed Domains (comma-separated)
+        </Label>
+        <Input
+          id={`insp_domains_${field.id}`}
+          value={(field.allowedDomains ?? []).join(', ')}
+          onChange={(e) => {
+            const raw = e.target.value;
+            const parsed = raw
+              .split(',')
+              .map((d) => d.trim())
+              .filter(Boolean);
+            onChange({
+              ...field,
+              allowedDomains: parsed.length > 0 ? parsed : undefined,
+            });
+          }}
+          placeholder="e.g. company.com, enterprise.org"
+          className="font-mono text-xs"
+        />
+      </div>
+    </div>
+  ),
 };

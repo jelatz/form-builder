@@ -1,157 +1,153 @@
-export type FieldType =
-  | 'text'
-  | 'email'
-  | 'phone'
-  | 'number'
-  | 'textarea'
-  | 'select'
-  | 'radio'
-  | 'checkbox'
-  | 'date'
-  | 'hidden'
-  | 'section';
+/**
+ * Pure Domain Types for the Multi-Tenant Form Builder AST.
+ * Zero React/DOM dependencies; 100% JSON-serializable.
+ */
 
-export type FieldColSpan = 12 | 8 | 6 | 4;
+export const FIELD_TYPES = [
+  'text',
+  'number',
+  'select',
+  'checkbox',
+  'radio',
+  'date',
+  'email',
+  'name',
+  'phone',
+  'address',
+  'textarea',
+  'website',
+  'currency',
+  'section',
+  'grid',
+] as const;
 
-export type ConditionOperator = 'equals' | 'not_equals' | 'contains' | 'not_empty';
-
-export interface FieldCondition {
-  sourceFieldId: string;
-  operator: ConditionOperator;
-  value: string;
-}
-
-export interface BaseField {
-  id: string;
-  type: FieldType;
-  label: string;
-  required: boolean;
-  helperText?: string;
-  crmFieldKey?: string;
-  condition?: FieldCondition;
-  colSpan?: FieldColSpan;
-}
+export type FieldType = (typeof FIELD_TYPES)[number];
 
 export interface SelectOption {
   label: string;
   value: string;
 }
 
-export interface TextFieldConfig extends BaseField {
+export interface BaseFieldConfig {
+  id: string;
+  type: FieldType;
+  label: string;
+  placeholder?: string;
+  helperText?: string;
+  required: boolean;
+  columnSpan?: 1 | 2 | 3;
+  showDividerAbove?: boolean;
+  parentGridId?: string;
+  gridColumn?: 0 | 1 | 2;
+}
+
+export interface TextFieldConfig extends BaseFieldConfig {
   type: 'text';
-  placeholder?: string;
+  minLength?: number;
   maxLength?: number;
-  defaultValue?: string;
 }
 
-export interface EmailFieldConfig extends BaseField {
+export interface EmailFieldConfig extends BaseFieldConfig {
   type: 'email';
-  placeholder?: string;
-  defaultValue?: string;
+  allowedDomains?: string[];
+  confirmEmail?: boolean;
 }
 
-export interface PhoneFieldConfig extends BaseField {
-  type: 'phone';
-  placeholder?: string;
-  defaultValue?: string;
-}
-
-export interface NumberFieldConfig extends BaseField {
+export interface NumberFieldConfig extends BaseFieldConfig {
   type: 'number';
-  placeholder?: string;
   min?: number;
   max?: number;
   step?: number;
-  defaultValue?: string;
 }
 
-export interface TextareaFieldConfig extends BaseField {
-  type: 'textarea';
-  placeholder?: string;
-  rows?: number;
-  maxLength?: number;
-  defaultValue?: string;
-}
-
-export interface SelectFieldConfig extends BaseField {
+export interface SelectFieldConfig extends BaseFieldConfig {
   type: 'select';
-  placeholder?: string;
   options: SelectOption[];
-  defaultValue?: string;
 }
 
-export interface RadioFieldConfig extends BaseField {
+export interface RadioFieldConfig extends BaseFieldConfig {
   type: 'radio';
   options: SelectOption[];
-  defaultValue?: string;
 }
 
-export interface CheckboxFieldConfig extends BaseField {
+export interface CheckboxFieldConfig extends BaseFieldConfig {
   type: 'checkbox';
-  checkboxLabel: string;
-  defaultChecked: boolean;
+  defaultChecked?: boolean;
 }
 
-export interface DateFieldConfig extends BaseField {
+export interface DateFieldConfig extends BaseFieldConfig {
   type: 'date';
-  minDate?: string;
-  maxDate?: string;
-  defaultValue?: string;
+  minDate?: string; // ISO YYYY-MM-DD
+  maxDate?: string; // ISO YYYY-MM-DD
 }
 
-export interface HiddenFieldConfig extends BaseField {
-  type: 'hidden';
-  urlParamKey: string;
-  defaultValue?: string;
+export interface NameFieldConfig extends BaseFieldConfig {
+  type: 'name';
+  firstNameLabel?: string;
+  lastNameLabel?: string;
 }
 
-export interface SectionFieldConfig extends BaseField {
+export interface PhoneFieldConfig extends BaseFieldConfig {
+  type: 'phone';
+  defaultCountryCode?: string;
+}
+
+export interface AddressFieldConfig extends BaseFieldConfig {
+  type: 'address';
+  showCountry?: boolean;
+}
+
+export interface TextareaFieldConfig extends BaseFieldConfig {
+  type: 'textarea';
+  rows?: number;
+  maxLength?: number;
+}
+
+export interface WebsiteFieldConfig extends BaseFieldConfig {
+  type: 'website';
+}
+
+export interface CurrencyFieldConfig extends BaseFieldConfig {
+  type: 'currency';
+  currencyCode?: string;
+  min?: number;
+  max?: number;
+}
+
+export interface SectionFieldConfig extends BaseFieldConfig {
   type: 'section';
-  subtitle?: string;
-  showDivider: boolean;
+  showLine?: boolean;
+}
+
+export interface GridFieldConfig extends BaseFieldConfig {
+  type: 'grid';
+  columns: 1 | 2 | 3;
 }
 
 export type FormField =
   | TextFieldConfig
   | EmailFieldConfig
-  | PhoneFieldConfig
   | NumberFieldConfig
-  | TextareaFieldConfig
   | SelectFieldConfig
   | RadioFieldConfig
   | CheckboxFieldConfig
   | DateFieldConfig
-  | HiddenFieldConfig
-  | SectionFieldConfig;
+  | NameFieldConfig
+  | PhoneFieldConfig
+  | AddressFieldConfig
+  | TextareaFieldConfig
+  | WebsiteFieldConfig
+  | CurrencyFieldConfig
+  | SectionFieldConfig
+  | GridFieldConfig;
 
-export type ExtractField<T extends FieldType> = Extract<FormField, { type: T }>;
-
-export type IntegrationProvider = 'ghl' | 'close' | 'zoho' | 'airtable' | 'webhook';
-
-export interface FieldMapping {
-  formFieldId: string;
-  remoteFieldKey: string;
-}
-
-export interface FormIntegrationConfig {
-  id: string;
-  provider: IntegrationProvider;
-  name: string;
-  enabled: boolean;
-  endpointUrl: string;
-  targetResource?: string;
-  apiKeyMasked?: string;
-  fieldMappings: FieldMapping[];
-}
-
-export interface SubmissionSettings {
-  submitButtonText: string;
-  actionType: 'message' | 'redirect';
-  successTitle: string;
-  successMessage: string;
-  redirectUrl?: string;
-  appendParamsToRedirect?: boolean;
-}
+/**
+ * Extracts the exact FormField union member for a given FieldType.
+ */
+export type FieldConfigByType<T extends FieldType> = Extract<
+  FormField,
+  { type: T }
+>;
 
 export interface ClientTenant {
   id: string;
@@ -159,73 +155,35 @@ export interface ClientTenant {
   slug: string;
   primaryDomain: string;
   allowedDomains: string[];
-  industry?: string;
-  status: 'active' | 'paused';
+  createdAt: string;
 }
 
 export interface FormSchema {
   id: string;
   clientId: string;
   slug: string;
-  customDomain: string;
-  status: 'draft' | 'published';
   title: string;
-  description: string;
+  description?: string;
+  submitButtonText?: string;
   fields: FormField[];
-  settings: SubmissionSettings;
-  integrations: FormIntegrationConfig[];
-}
-
-export interface IntegrationDeliveryLog {
-  integrationId: string;
-  provider: IntegrationProvider;
-  integrationName: string;
-  status: 'delivered' | 'failed';
-  statusCode: number;
-  payloadPreview: string;
-  responseMessage: string;
-  timestamp: string;
+  updatedAt: string;
 }
 
 export interface SubmissionRecord {
   id: string;
   formId: string;
-  formTitle: string;
   clientId: string;
-  domain: string;
+  values: Record<string, unknown>;
   submittedAt: string;
-  values: FormValues;
-  capturedUrlParams: Record<string, string>;
-  deliveryLogs: IntegrationDeliveryLog[];
+  sourceHost?: string;
 }
 
-export type FormValues = Record<string, string | boolean | undefined>;
-
-export type FormErrors = Record<string, string>;
-
-export type UserRole = 'agency_admin' | 'client_editor';
-
-export interface AuthUser {
-  id: string;
-  email: string;
-  name: string;
-  role: UserRole;
-  clientId?: string | null;
+/**
+ * Type guard verifying if an unknown string is a supported FieldType.
+ */
+export function isFieldType(value: unknown): value is FieldType {
+  return (
+    typeof value === 'string' &&
+    (FIELD_TYPES as readonly string[]).includes(value)
+  );
 }
-
-export interface AuthSession {
-  user: AuthUser;
-  token: string;
-  expiresAt?: number;
-}
-
-export interface RegisterCredentials {
-  name: string;
-  email: string;
-  password: string;
-  role: UserRole;
-  clientName?: string;
-  clientId?: string;
-  primaryDomain?: string;
-}
-
