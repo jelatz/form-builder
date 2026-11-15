@@ -216,17 +216,19 @@ export const phoneFieldDefinition: FieldDefinition<'phone'> = {
         <Label htmlFor={`insp_cc_${field.id}`}>Default Country Code</Label>
         <Select
           id={`insp_cc_${field.id}`}
+          menuHeading="Default Country Code"
           value={field.defaultCountryCode ?? '+1'}
-          onChange={(e) =>
-            onChange({ ...field, defaultCountryCode: e.target.value })
+          onValueChange={(nextCode) =>
+            onChange({ ...field, defaultCountryCode: nextCode })
           }
-        >
-          <option value="+1">🇺🇸 United States (+1)</option>
-          <option value="+44">🇬🇧 United Kingdom (+44)</option>
-          <option value="+63">🇵🇭 Philippines (+63)</option>
-          <option value="+61">🇦🇺 Australia (+61)</option>
-          <option value="+49">🇩🇪 Germany (+49)</option>
-        </Select>
+          options={[
+            { value: '+1', label: '🇺🇸 United States', meta: '+1' },
+            { value: '+44', label: '🇬🇧 United Kingdom', meta: '+44' },
+            { value: '+63', label: '🇵🇭 Philippines', meta: '+63' },
+            { value: '+61', label: '🇦🇺 Australia', meta: '+61' },
+            { value: '+49', label: '🇩🇪 Germany', meta: '+49' },
+          ]}
+        />
       </div>
     </div>
   ),

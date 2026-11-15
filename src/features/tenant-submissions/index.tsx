@@ -26,6 +26,15 @@ export interface TenantDashboardPanelProps {
     primaryDomain: string;
     allowedDomains: string[];
   }) => void;
+  onUpdateTenant: (
+    tenantId: string,
+    input: {
+      name: string;
+      slug: string;
+      primaryDomain: string;
+      allowedDomains: string[];
+    },
+  ) => void;
   onEditForm: (form: FormSchema) => void;
   onViewForm: (form: FormSchema) => void;
   onViewFormSubmissions: (form: FormSchema) => void;
@@ -44,6 +53,7 @@ export function TenantDashboardPanel({
   activeFormId,
   onSelectTenant,
   onCreateTenant,
+  onUpdateTenant,
   onEditForm,
   onViewForm,
   onViewFormSubmissions,
@@ -55,14 +65,20 @@ export function TenantDashboardPanel({
   const [tenantDomain, setTenantDomain] = useState('');
   const [showCreateFormModal, setShowCreateFormModal] = useState(false);
   const [newFormTitle, setNewFormTitle] = useState('');
+  const [editingTenant, setEditingTenant] = useState<ClientTenant | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editSlug, setEditSlug] = useState('');
+  const [editPrimaryDomain, setEditPrimaryDomain] = useState('');
+  const [editAllowedDomains, setEditAllowedDomains] = useState('');
 
   useEffect(() => {
-    if (!showCreateModal && !showCreateFormModal) return;
+    if (!showCreateModal && !showCreateFormModal && !editingTenant) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setShowCreateModal(false);
         setShowCreateFormModal(false);
+        setEditingTenant(null);
       }
     };
 
@@ -70,7 +86,7 @@ export function TenantDashboardPanel({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [showCreateModal, showCreateFormModal]);
+  }, [showCreateModal, showCreateFormModal, editingTenant]);
 
   const handleCreateTenantSubmit = () => {
     const trimmedName = tenantName.trim();
@@ -96,6 +112,48 @@ export function TenantDashboardPanel({
     onCreateFormForTenant(activeTenant.id, trimmed);
     setNewFormTitle('');
     setShowCreateFormModal(false);
+  };
+
+  const openEditTenantModal = (tenant: ClientTenant) => {
+    setEditingTenant(tenant);
+    setEditName(tenant.name);
+    setEditSlug(tenant.slug);
+    setEditPrimaryDomain(tenant.primaryDomain);
+    setEditAllowedDomains(tenant.allowedDomains.join(', '));
+  };
+
+  const handleUpdateTenantSubmit = () => {
+    if (!editingTenant) return;
+    const trimmedName = editName.trim();
+    const trimmedPrimary = editPrimaryDomain.trim().toLowerCase();
+    if (!trimmedName || !trimmedPrimary) return;
+
+    const normalizedSlug =
+      editSlug
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '') ||
+      editingTenant.slug ||
+      'tenant';
+
+    const parsedAllowed = Array.from(
+      new Set(
+        editAllowedDomains
+          .split(',')
+          .map((d) => d.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    );
+
+    onUpdateTenant(editingTenant.id, {
+      name: trimmedName,
+      slug: normalizedSlug,
+      primaryDomain: trimmedPrimary,
+      allowedDomains:
+        parsedAllowed.length > 0 ? parsedAllowed : [trimmedPrimary],
+    });
+    setEditingTenant(null);
   };
 
   const filteredTenants = tenants.filter((tenant) => {
@@ -359,6 +417,13 @@ export function TenantDashboardPanel({
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    size="xs"
+                    variant="secondary"
+                    onClick={() => openEditTenantModal(activeTenant)}
+                  >
+                    Edit Details
+                  </Button>
                   <Button
                     size="xs"
                     variant="secondary"
@@ -774,6 +839,99 @@ export function TenantDashboardPanel({
           </div>
         </div>
       )}
+
+      {/* Edit Tenant Details Modal */}
+      {editingTenant && (
+        <div
+          className="fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setEditingTenant(null)}
+        >
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit_tenant_modal_title"
+            className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-4 space-y-3 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleUpdateTenantSubmit();
+            }}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-200 pb-2">
+              <span
+                id="edit_tenant_modal_title"
+                className="font-mono text-xs uppercase text-zinc-700 font-semibold"
+              >
+                Edit Tenant Details
+              </span>
+              <Badge variant="neutral">{editingTenant.id}</Badge>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="dashboard_edit_tenant_name">
+                Organization Name
+              </Label>
+              <Input
+                id="dashboard_edit_tenant_name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="Acme Corp"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="dashboard_edit_tenant_slug">Workspace Slug</Label>
+              <Input
+                id="dashboard_edit_tenant_slug"
+                value={editSlug}
+                onChange={(e) => setEditSlug(e.target.value)}
+                placeholder="acme-corp"
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="dashboard_edit_tenant_domain">
+                Primary Domain
+              </Label>
+              <Input
+                id="dashboard_edit_tenant_domain"
+                value={editPrimaryDomain}
+                onChange={(e) => setEditPrimaryDomain(e.target.value)}
+                placeholder="acme.com"
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="dashboard_edit_tenant_allowed_domains">
+                Allowed Domains (comma-separated)
+              </Label>
+              <Input
+                id="dashboard_edit_tenant_allowed_domains"
+                value={editAllowedDomains}
+                onChange={(e) => setEditAllowedDomains(e.target.value)}
+                placeholder="acme.com, portal.acme.com"
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => setEditingTenant(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="xs"
+                variant="primary"
+                disabled={!editName.trim() || !editPrimaryDomain.trim()}
+              >
+                Save Changes
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
     </main>
   );
 }
@@ -1046,9 +1204,10 @@ export interface FormsDirectoryPanelProps {
   activeFormId: string;
   tenantFilter?: string;
   onTenantFilterChange?: (tenantId: string) => void;
-  onSelectForm?: (form: FormSchema) => void;
+  isActionModalOpen?: boolean;
   onViewForm: (form: FormSchema) => void;
   onEditForm: (form: FormSchema) => void;
+  onViewFormSubmissions: (form: FormSchema) => void;
   onDeleteForm: (formId: string) => void;
   onCreateFormForTenant: (tenantId: string, title: string) => void;
 }
@@ -1061,9 +1220,10 @@ export function FormsDirectoryPanel({
   activeFormId,
   tenantFilter: controlledTenantFilter,
   onTenantFilterChange,
-  onSelectForm,
+  isActionModalOpen = false,
   onViewForm,
   onEditForm,
+  onViewFormSubmissions,
   onDeleteForm,
   onCreateFormForTenant,
 }: FormsDirectoryPanelProps) {
@@ -1108,7 +1268,8 @@ export function FormsDirectoryPanel({
       if (
         (event.metaKey || event.ctrlKey) &&
         event.key.toLowerCase() === 'k' &&
-        !showCreateModal
+        !showCreateModal &&
+        !isActionModalOpen
       ) {
         event.preventDefault();
         searchInputRef.current?.focus();
@@ -1119,7 +1280,7 @@ export function FormsDirectoryPanel({
     return () => {
       window.removeEventListener('keydown', handleShortcut);
     };
-  }, [showCreateModal]);
+  }, [showCreateModal, isActionModalOpen]);
 
   const tenantMap = new Map<string, ClientTenant>(
     tenants.map((t) => [t.id, t]),
@@ -1317,7 +1478,8 @@ export function FormsDirectoryPanel({
             </h1>
             <p className="text-xs text-zinc-500">
               Showing forms across all client tenants. Filter by tenant or
-              specific form, or open any form to preview, edit, or delete.
+              specific form, or open any form to preview, edit, view
+              submissions, or delete.
             </p>
           </div>
 
@@ -1587,10 +1749,18 @@ export function FormsDirectoryPanel({
                     return (
                       <tr
                         key={form.id}
+                        tabIndex={0}
+                        onClick={() => onEditForm(form)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onEditForm(form);
+                          }
+                        }}
                         className={
                           isActive
-                            ? 'bg-emerald-50/50 text-zinc-900'
-                            : 'hover:bg-zinc-50 text-zinc-700'
+                            ? 'bg-emerald-50/50 hover:bg-emerald-50/80 text-zinc-900 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/40'
+                            : 'hover:bg-zinc-50 text-zinc-700 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/40'
                         }
                       >
                         <td className="py-3 px-3">
@@ -1633,60 +1803,128 @@ export function FormsDirectoryPanel({
                           </Badge>
                         </td>
 
-                        <td className="py-3 px-3">
-                          <Badge
-                            variant={
-                              formSubmissionsCount > 0 ? 'success' : 'neutral'
-                            }
+                        <td
+                          className="py-3 px-3"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => onViewFormSubmissions(form)}
+                            title={`View submissions for ${form.title}`}
+                            aria-label={`View ${formSubmissionsCount} submissions for ${form.title}`}
+                            className="cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
                           >
-                            {formSubmissionsCount}
-                          </Badge>
+                            <Badge
+                              variant={
+                                formSubmissionsCount > 0 ? 'success' : 'neutral'
+                              }
+                            >
+                              {formSubmissionsCount}
+                            </Badge>
+                          </button>
                         </td>
 
                         <td className="py-3 px-3 font-mono text-zinc-500">
                           {form.updatedAt.slice(0, 16).replace('T', ' ')}
                         </td>
 
-                        <td className="py-3 px-3 text-right">
+                        <td
+                          className="py-3 px-3 text-right"
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
                           <div className="inline-flex items-center justify-end gap-1.5">
-                            {onSelectForm && (
-                              <Button
-                                size="xs"
-                                variant={isActive ? 'secondary' : 'primary'}
-                                disabled={isActive}
-                                onClick={() => onSelectForm(form)}
-                                title={
-                                  isActive
-                                    ? 'Active Form'
-                                    : `Select ${form.title}`
-                                }
-                              >
-                                {isActive ? 'Active' : 'Select'}
-                              </Button>
-                            )}
                             <Button
                               size="xs"
                               variant="secondary"
                               onClick={() => onViewForm(form)}
+                              aria-label={`View ${form.title}`}
                               title={`Open ${form.title} in Live Preview`}
+                              className="h-7 w-7 p-0"
                             >
-                              View
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="h-3.5 w-3.5"
+                                aria-hidden="true"
+                              >
+                                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                                <circle cx="12" cy="12" r="3" />
+                              </svg>
                             </Button>
                             <Button
                               size="xs"
                               variant="secondary"
                               onClick={() => onEditForm(form)}
+                              aria-label={`Edit ${form.title}`}
                               title={`Edit ${form.title} in Builder`}
+                              className="h-7 w-7 p-0"
                             >
-                              Edit
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="h-3.5 w-3.5"
+                                aria-hidden="true"
+                              >
+                                <path d="M12 20h9" />
+                                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                              </svg>
+                            </Button>
+                            <Button
+                              size="xs"
+                              variant="secondary"
+                              onClick={() => onViewFormSubmissions(form)}
+                              aria-label={`Submissions for ${form.title}`}
+                              title={`View submissions for ${form.title}`}
+                              className="h-7 w-7 p-0"
+                            >
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="h-3.5 w-3.5"
+                                aria-hidden="true"
+                              >
+                                <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+                                <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+                              </svg>
                             </Button>
                             <Button
                               size="xs"
                               variant="danger"
                               onClick={() => onDeleteForm(form.id)}
+                              aria-label={`Delete ${form.title}`}
                               title={`Delete ${form.title}`}
+                              className="h-7 w-7 p-0"
                             >
-                              Delete
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="h-3.5 w-3.5"
+                                aria-hidden="true"
+                              >
+                                <path d="M3 6h18" />
+                                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                                <line x1="10" x2="10" y1="11" y2="17" />
+                                <line x1="14" x2="14" y1="11" y2="17" />
+                              </svg>
                             </Button>
                           </div>
                         </td>
@@ -1742,15 +1980,16 @@ export function FormsDirectoryPanel({
               <Label htmlFor="dir_new_form_tenant">Client Tenant</Label>
               <Select
                 id="dir_new_form_tenant"
+                menuHeading="Select Client Tenant"
                 value={newFormTenantId}
-                onChange={(e) => setNewFormTenantId(e.target.value)}
-              >
-                {tenants.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} ({t.primaryDomain})
-                  </option>
-                ))}
-              </Select>
+                onValueChange={setNewFormTenantId}
+                options={tenants.map((t) => ({
+                  value: t.id,
+                  label: t.name,
+                  description: t.primaryDomain,
+                  meta: `${forms.filter((f) => f.clientId === t.id).length}f`,
+                }))}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="dir_new_form_title">Form Title</Label>

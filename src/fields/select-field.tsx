@@ -33,17 +33,19 @@ export const selectFieldDefinition: FieldDefinition<'select'> = {
       <Select
         id={field.id}
         value={typeof value === 'string' ? value : ''}
-        onChange={(e) => onChange(e.target.value)}
+        onValueChange={(nextValue) => onChange(nextValue)}
+        placeholder={field.placeholder ?? '-Select-'}
+        menuHeading={field.label || 'Select Option'}
         disabled={disabled}
         hasError={Boolean(error)}
-      >
-        <option value="">{field.placeholder ?? '-Select-'}</option>
-        {field.options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </Select>
+        options={[
+          { value: '', label: field.placeholder ?? '-Select-' },
+          ...field.options.map((opt) => ({
+            value: opt.value,
+            label: opt.label,
+          })),
+        ]}
+      />
     </FieldFrame>
   ),
   renderInspector: ({ field, onChange }) => (

@@ -61,10 +61,15 @@ Dependencies must strictly flow inward:
 - Zero purple/neon gradients, zero `rounded-2xl` bubbly cards, zero blurred background blobs.
 
 ### Principle 7: Persistent Left-Hand Navigation & Minimizable Icon Rail
-- Primary workspace mode navigation (`All Forms`, `Edit Builder`, `Live Preview`, `Submissions`, `Schema JSON`) and tenant/form switching MUST always reside in the persistent left-hand side navigation rail (`<aside aria-label="Workspace Navigation">`). Workspace navigation and tenant/form switchers must never be moved to a horizontal top navigation bar.
+- Primary workspace mode navigation (`Dashboard`, `All Forms`, `Schema JSON`) MUST always reside in the persistent left-hand side navigation rail (`<aside aria-label="Workspace Navigation">`). Form-level views (`Edit Builder`, `Live Preview`, `Submissions`) are opened directly from `All Forms` or `Dashboard`. Workspace navigation must never be moved to a horizontal top navigation bar.
 - The top navigation bar (`<header>`) at the top of the right-hand workspace column MUST always include a toggle button (`isSidebarMinimized`) to minimize/collapse the left side navigation into an icon-only rail (`w-16` showing only icons) and expand it back (`w-60`).
-- When expanded (`w-60`), the left rail presents the brand header, full vertical `TenantSwitcherBar` selects/actions, workspace mode navigation items with SVG icons, text labels, and count badges, and the active scope footer.
-- When minimized (`w-16`), the left rail collapses to an icon-only strip showing ONLY icons for brand, tenant/form switchers (`collapsed={true}`), and the 5 workspace modes with accessible titles/aria-labels.
+- When expanded (`w-60`), the left rail presents the brand header, workspace mode navigation items (`Dashboard`, `All Forms`, `Schema JSON`) with SVG icons, text labels, and count badges, and the active scope footer.
+- When minimized (`w-16`), the left rail collapses to an icon-only strip showing ONLY icons for brand and the workspace modes (`Dashboard`, `All Forms`, `Schema JSON`) with accessible titles/aria-labels.
+
+### Principle 8: Unified Custom Dropdown & Select UI
+- **NEVER** render raw native `<select>` elements anywhere in pages, modals, inspectors, or field plugins.
+- Every dropdown selector, filter menu, and runtime select field MUST use `Select` or `FilterDropdown` from `src/shared/ui/index.tsx` (passing `DropdownOption[]` with `value`, `label`, and optional `description` / `meta` / `menuHeading`).
+- All dropdowns share the portaled `role="listbox"` popover UI (`rounded-lg border border-zinc-200 bg-white shadow-lg`), uppercase mono heading, emerald selected highlight (`bg-emerald-50/80 text-emerald-950`) with checkmark icon, bordered `meta` pill, outside-click dismissal, and keyboard navigation (`ArrowUp`, `ArrowDown`, `Home`, `End`, `Escape`).
 
 ---
 

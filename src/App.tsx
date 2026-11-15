@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import {
   addField,
   duplicateField,
@@ -14,11 +14,6 @@ import {
   type FormValues,
   type SubmissionRecord,
 } from './domain/form-schema';
-import { BuilderCanvas } from './features/builder-canvas';
-import { FieldPalette } from './features/field-palette';
-import { FormRenderer } from './features/form-renderer';
-import { PropertyInspector } from './features/property-inspector';
-import { SchemaIoPanel } from './features/schema-io';
 import {
   FormsDirectoryPanel,
   SubmissionsPanel,
@@ -34,7 +29,33 @@ import {
 } from './features/tenant-submissions/storage';
 import { createDefaultField } from './fields/registry';
 import { createId } from './shared/lib';
-import { Badge, Button, Input, Label, Select } from './shared/ui';
+import { Badge, Button, Input, Label, Select, Skeleton } from './shared/ui';
+
+const BuilderCanvas = lazy(() =>
+  import('./features/builder-canvas').then((m) => ({
+    default: m.BuilderCanvas,
+  })),
+);
+const FieldPalette = lazy(() =>
+  import('./features/field-palette').then((m) => ({
+    default: m.FieldPalette,
+  })),
+);
+const FormRenderer = lazy(() =>
+  import('./features/form-renderer').then((m) => ({
+    default: m.FormRenderer,
+  })),
+);
+const PropertyInspector = lazy(() =>
+  import('./features/property-inspector').then((m) => ({
+    default: m.PropertyInspector,
+  })),
+);
+const SchemaIoPanel = lazy(() =>
+  import('./features/schema-io').then((m) => ({
+    default: m.SchemaIoPanel,
+  })),
+);
 
 export type WorkspaceMode =
   | 'dashboard'
@@ -44,9 +65,156 @@ export type WorkspaceMode =
   | 'submissions'
   | 'schema';
 
+type DirectoryModalAction =
+  | 'edit'
+  | 'preview'
+  | 'submissions'
+  | 'schema'
+  | 'delete';
+
+interface DirectoryModalState {
+  action: DirectoryModalAction;
+  formId: string;
+}
+
 interface FormHistoryEntry {
   past: FormSchema[];
   future: FormSchema[];
+}
+
+function DirectoryModalSkeleton({
+  action,
+}: {
+  action: Exclude<DirectoryModalAction, 'delete'>;
+}) {
+  if (action === 'edit') {
+    return (
+      <div
+        aria-label="Loading builder workspace"
+        className="flex-1 flex min-h-0 min-w-0 bg-[#f4f5f7]"
+      >
+        <div className="w-60 shrink-0 border-r border-zinc-200 bg-white p-3 space-y-2.5">
+          <Skeleton className="h-3.5 w-24" />
+          <div className="space-y-2 pt-1">
+            {Array.from({ length: 7 }).map((_, i) => (
+              <Skeleton key={i} className="h-9 w-full" />
+            ))}
+          </div>
+        </div>
+        <div className="flex-1 p-6 overflow-hidden">
+          <div className="max-w-2xl mx-auto rounded-lg border border-zinc-200 bg-white p-6 space-y-4 shadow-2xs">
+            <div className="space-y-2 border-b border-zinc-200 pb-4">
+              <Skeleton className="h-6 w-48" />
+              <Skeleton className="h-3.5 w-72" />
+            </div>
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div
+                key={i}
+                className="rounded-md border border-zinc-200 p-4 space-y-2.5"
+              >
+                <Skeleton className="h-3.5 w-28" />
+                <Skeleton className="h-9 w-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="w-80 shrink-0 border-l border-zinc-200 bg-white p-4 space-y-4">
+          <Skeleton className="h-4 w-32" />
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="space-y-1.5">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (action === 'preview') {
+    return (
+      <div
+        aria-label="Loading form preview"
+        className="flex-1 overflow-y-auto p-6 bg-[#f4f5f7]"
+      >
+        <div className="max-w-xl mx-auto rounded-lg border border-zinc-200 bg-white p-6 space-y-5 shadow-2xs">
+          <div className="space-y-2 border-b border-zinc-200 pb-4">
+            <Skeleton className="h-6 w-52" />
+            <Skeleton className="h-3.5 w-80" />
+          </div>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="space-y-1.5">
+              <Skeleton className="h-3.5 w-28" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+          ))}
+          <div className="pt-2">
+            <Skeleton className="h-9 w-28" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (action === 'submissions') {
+    return (
+      <div
+        aria-label="Loading submissions"
+        className="flex-1 overflow-y-auto p-6 bg-[#f4f5f7]"
+      >
+        <div className="w-full space-y-4">
+          <div className="p-4 rounded-lg border border-zinc-200 bg-white flex items-center justify-between gap-4">
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-64" />
+              <Skeleton className="h-3.5 w-44" />
+            </div>
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-7 w-20" />
+              <Skeleton className="h-7 w-20" />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="lg:col-span-2 rounded-lg border border-zinc-200 bg-white p-4 space-y-3">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-9 w-full" />
+              ))}
+            </div>
+            <div className="rounded-lg border border-zinc-200 bg-white p-4 space-y-3">
+              <Skeleton className="h-5 w-32" />
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      aria-label="Loading schema JSON"
+      className="flex-1 overflow-y-auto p-6 bg-[#f4f5f7]"
+    >
+      <div className="max-w-4xl mx-auto space-y-4">
+        <div className="p-4 rounded-lg border border-zinc-200 bg-white flex items-center justify-between">
+          <Skeleton className="h-4 w-48" />
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-7 w-20" />
+            <Skeleton className="h-7 w-24" />
+          </div>
+        </div>
+        <div className="rounded-lg border border-zinc-200 bg-white p-4 space-y-2.5">
+          {Array.from({ length: 10 }).map((_, i) => (
+            <Skeleton
+              key={i}
+              className={i % 3 === 0 ? 'h-4 w-3/4' : 'h-4 w-1/2'}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function App() {
@@ -88,6 +256,10 @@ export default function App() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [showHeaderNewFormModal, setShowHeaderNewFormModal] = useState(false);
   const [newHeaderFormTitle, setNewHeaderFormTitle] = useState('');
+  const [directoryModal, setDirectoryModal] =
+    useState<DirectoryModalState | null>(null);
+  const [loadedModalKey, setLoadedModalKey] = useState<string | null>(null);
+  const directoryModalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!showHeaderNewFormModal) return;
@@ -104,6 +276,46 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [showHeaderNewFormModal]);
+
+  const isDirectoryModalOpen = activeMode === 'forms' && directoryModal !== null;
+  const activeModalKey =
+    isDirectoryModalOpen && directoryModal
+      ? `${directoryModal.action}:${directoryModal.formId}`
+      : null;
+  const isModalContentReady =
+    directoryModal?.action === 'delete' ||
+    (activeModalKey !== null && loadedModalKey === activeModalKey);
+
+  useEffect(() => {
+    if (!isDirectoryModalOpen) return;
+
+    directoryModalRef.current?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !showHeaderNewFormModal) {
+        event.preventDefault();
+        setDirectoryModal(null);
+        setLoadedModalKey(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isDirectoryModalOpen, showHeaderNewFormModal]);
+
+  useEffect(() => {
+    if (!activeModalKey || directoryModal?.action === 'delete') return;
+
+    const timer = window.setTimeout(() => {
+      setLoadedModalKey(activeModalKey);
+    }, 180);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [activeModalKey, directoryModal?.action]);
 
   useEffect(() => {
     // Clear any stale body inline styles that may have been injected or stuck
@@ -305,6 +517,38 @@ export default function App() {
     );
   };
 
+  const handleUpdateTenant = (
+    tenantId: string,
+    input: {
+      name: string;
+      slug: string;
+      primaryDomain: string;
+      allowedDomains: string[];
+    },
+  ) => {
+    const prevTenants = tenants;
+    const target = tenants.find((t) => t.id === tenantId);
+    if (!target) return;
+
+    const updatedTenant: ClientTenant = {
+      ...target,
+      name: input.name,
+      slug: input.slug,
+      primaryDomain: input.primaryDomain,
+      allowedDomains: input.allowedDomains,
+    };
+
+    const nextTenants = tenants.map((t) =>
+      t.id === tenantId ? updatedTenant : t,
+    );
+
+    setTenants(nextTenants);
+    persistTenants(nextTenants).catch(() => {
+      setTenants(prevTenants);
+      setSyncError('Failed to update tenant details; rolled back.');
+    });
+  };
+
   const handleCreateFormForTenant = (targetTenantId: string, title: string) => {
     const prevForms = forms;
     const targetTenantForms = filterFormsByTenant(forms, targetTenantId);
@@ -356,6 +600,24 @@ export default function App() {
     setShowHeaderNewFormModal(false);
   };
 
+  const openDirectoryModal = (
+    action: DirectoryModalAction,
+    form: FormSchema,
+  ) => {
+    if (action !== 'delete') {
+      setActiveTenantId(form.clientId);
+      setActiveFormId(form.id);
+      setSelectedFieldId(form.fields[0]?.id ?? null);
+    }
+    setLoadedModalKey(null);
+    setDirectoryModal({ action, formId: form.id });
+  };
+
+  const closeDirectoryModal = () => {
+    setDirectoryModal(null);
+    setLoadedModalKey(null);
+  };
+
   const handleViewFormFromDirectory = (form: FormSchema) => {
     setActiveTenantId(form.clientId);
     setActiveFormId(form.id);
@@ -370,7 +632,7 @@ export default function App() {
     setActiveMode('edit');
   };
 
-  const handleViewSubmissionsFromDashboard = (form: FormSchema) => {
+  const handleViewFormSubmissions = (form: FormSchema) => {
     setActiveTenantId(form.clientId);
     setActiveFormId(form.id);
     setSelectedFieldId(form.fields[0]?.id ?? null);
@@ -499,7 +761,13 @@ export default function App() {
     };
     commitFormSchema(scopedImport);
     setSelectedFieldId(scopedImport.fields[0]?.id ?? null);
-    setActiveMode('edit');
+    if (isDirectoryModalOpen) {
+      setDirectoryModal((prev) =>
+        prev ? { ...prev, action: 'edit' } : null,
+      );
+    } else {
+      setActiveMode('edit');
+    }
   };
 
   const handleRecordSubmission = (values: FormValues) => {
@@ -545,6 +813,102 @@ export default function App() {
       setSyncError('Failed to clear submissions; rolled back.');
     });
   };
+
+  const renderBuilderWorkspace = (
+    onNavigateMode: (
+      mode: 'forms' | 'edit' | 'preview' | 'submissions' | 'schema',
+    ) => void,
+  ) => (
+    <div className="flex-1 flex min-h-0 min-w-0">
+      <FieldPalette
+        onAddField={(type, presetPatch) => {
+          if (type !== 'grid' && type !== 'section' && selectedField) {
+            if (selectedField.type === 'grid') {
+              handleAddFieldAt(type, undefined, {
+                ...presetPatch,
+                parentGridId: selectedField.id,
+                gridColumn: 0,
+              });
+              return;
+            }
+            if (selectedField.parentGridId) {
+              handleAddFieldAt(type, undefined, {
+                ...presetPatch,
+                parentGridId: selectedField.parentGridId,
+                gridColumn: selectedField.gridColumn ?? 0,
+              });
+              return;
+            }
+          }
+          handleAddFieldAt(type, undefined, presetPatch);
+        }}
+      />
+
+      {inspectorSide === 'left' && (
+        <PropertyInspector
+          schema={activeForm}
+          selectedField={selectedField}
+          onUpdateField={handleUpdateField}
+          onDuplicateField={handleDuplicateField}
+          onRemoveField={handleRemoveField}
+          onUpdateMetadata={handleUpdateMetadata}
+          onNavigateMode={onNavigateMode}
+          onSelectField={setSelectedFieldId}
+          inspectorSide={inspectorSide}
+          onToggleInspectorSide={() =>
+            setInspectorSide((prev) => (prev === 'right' ? 'left' : 'right'))
+          }
+        />
+      )}
+
+      <BuilderCanvas
+        schema={activeForm}
+        selectedFieldId={selectedFieldId}
+        onSelectField={setSelectedFieldId}
+        onAddFieldAt={handleAddFieldAt}
+        onMoveField={handleMoveField}
+        onMoveFieldToGrid={handleMoveFieldToGrid}
+        onDuplicateField={handleDuplicateField}
+        onRemoveField={handleRemoveField}
+        onUpdateMetadata={handleUpdateMetadata}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+      />
+
+      {inspectorSide === 'right' && (
+        <PropertyInspector
+          schema={activeForm}
+          selectedField={selectedField}
+          onUpdateField={handleUpdateField}
+          onDuplicateField={handleDuplicateField}
+          onRemoveField={handleRemoveField}
+          onUpdateMetadata={handleUpdateMetadata}
+          onNavigateMode={onNavigateMode}
+          onSelectField={setSelectedFieldId}
+          inspectorSide={inspectorSide}
+          onToggleInspectorSide={() =>
+            setInspectorSide((prev) => (prev === 'right' ? 'left' : 'right'))
+          }
+        />
+      )}
+    </div>
+  );
+
+  const modalForm =
+    isDirectoryModalOpen && directoryModal
+      ? forms.find((f) => f.id === directoryModal.formId) ?? null
+      : null;
+  const modalTenant = modalForm
+    ? tenants.find((t) => t.id === modalForm.clientId) ?? activeTenant
+    : activeTenant;
+  const modalScopedSubmissions = modalForm
+    ? filterSubmissionsByTenantForm(submissions, modalTenant.id, modalForm.id)
+    : [];
+  const modalTenantFormCount = modalForm
+    ? filterFormsByTenant(forms, modalForm.clientId).length
+    : 0;
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-[#f4f5f7] text-zinc-900 flex flex-row selection:bg-emerald-100">
@@ -712,140 +1076,7 @@ export default function App() {
               )}
             </button>
 
-            {/* Mode 2: Edit Builder */}
-            <button
-              type="button"
-              onClick={() => setActiveMode('edit')}
-              title="Edit Builder"
-              aria-label="Edit Builder"
-              className={
-                isSidebarMinimized
-                  ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
-                      activeMode === 'edit'
-                        ? 'bg-zinc-900 text-white'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
-                    }`
-                  : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
-                      activeMode === 'edit'
-                        ? 'bg-zinc-900 text-white'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
-                    }`
-              }
-            >
-              <svg
-                className="w-4 h-4 shrink-0"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M4 21v-7" />
-                <path d="M4 10V3" />
-                <path d="M12 21v-9" />
-                <path d="M12 8V3" />
-                <path d="M20 21v-5" />
-                <path d="M20 12V3" />
-                <path d="M1 14h6" />
-                <path d="M9 8h6" />
-                <path d="M17 16h6" />
-              </svg>
-              {!isSidebarMinimized && (
-                <span className="truncate">Edit Builder</span>
-              )}
-            </button>
-
-            {/* Mode 3: Live Preview */}
-            <button
-              type="button"
-              onClick={() => setActiveMode('preview')}
-              title="Live Preview"
-              aria-label="Live Preview"
-              className={
-                isSidebarMinimized
-                  ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
-                      activeMode === 'preview'
-                        ? 'bg-zinc-900 text-white'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
-                    }`
-                  : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
-                      activeMode === 'preview'
-                        ? 'bg-zinc-900 text-white'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
-                    }`
-              }
-            >
-              <svg
-                className="w-4 h-4 shrink-0"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-              {!isSidebarMinimized && (
-                <span className="truncate">Live Preview</span>
-              )}
-            </button>
-
-            {/* Mode 4: Submissions */}
-            <button
-              type="button"
-              onClick={() => setActiveMode('submissions')}
-              title={
-                scopedSubmissions.length !== undefined
-                  ? `Submissions (${scopedSubmissions.length})`
-                  : 'Submissions'
-              }
-              aria-label="Submissions"
-              className={
-                isSidebarMinimized
-                  ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
-                      activeMode === 'submissions'
-                        ? 'bg-zinc-900 text-white'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
-                    }`
-                  : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
-                      activeMode === 'submissions'
-                        ? 'bg-zinc-900 text-white'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
-                    }`
-              }
-            >
-              <svg
-                className="w-4 h-4 shrink-0"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
-                <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
-              </svg>
-              {!isSidebarMinimized && (
-                <>
-                  <span className="truncate">Submissions</span>
-                  <span
-                    className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${
-                      activeMode === 'submissions'
-                        ? 'bg-zinc-700 text-zinc-100'
-                        : 'bg-zinc-100 text-zinc-600'
-                    }`}
-                  >
-                    {scopedSubmissions.length}
-                  </span>
-                </>
-              )}
-            </button>
-
-            {/* Mode 5: Schema JSON */}
+            {/* Mode 2: Schema JSON */}
             <button
               type="button"
               onClick={() => setActiveMode('schema')}
@@ -986,6 +1217,36 @@ export default function App() {
               </div>
             ) : (
               <>
+                {(activeMode === 'edit' ||
+                  activeMode === 'preview' ||
+                  activeMode === 'submissions') && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setActiveMode('forms')}
+                      aria-label="Back to All Forms"
+                      title="Back to All Forms"
+                      className="shrink-0"
+                    >
+                      <svg
+                        className="w-3.5 h-3.5"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="m15 18-6-6 6-6" />
+                      </svg>
+                      <span>All Forms</span>
+                    </Button>
+                    <div className="h-4 w-px bg-zinc-200 shrink-0" />
+                  </>
+                )}
+
                 {/* Active Tenant context pill */}
                 <span
                   className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-zinc-100 border border-zinc-200 font-mono text-[11px] text-zinc-600 truncate max-w-[180px] shrink-0"
@@ -1018,16 +1279,17 @@ export default function App() {
                   {/* Form Selector */}
                   <Select
                     aria-label="Active Tenant Form"
+                    menuHeading="Active Tenant Forms"
                     value={activeForm.id}
-                    onChange={(e) => handleSelectForm(e.target.value)}
-                    className="h-8 w-48 sm:w-60 text-xs font-medium py-0 px-2"
-                  >
-                    {tenantForms.map((f) => (
-                      <option key={f.id} value={f.id}>
-                        {f.title} (/{f.slug})
-                      </option>
-                    ))}
-                  </Select>
+                    onValueChange={handleSelectForm}
+                    options={tenantForms.map((f) => ({
+                      value: f.id,
+                      label: f.title,
+                      description: `/${f.slug}`,
+                      meta: `${f.fields.length}f`,
+                    }))}
+                    className="h-8 w-48 sm:w-60 text-xs font-medium px-2.5"
+                  />
 
                   {/* Compact + Form Button */}
                   <Button
@@ -1047,7 +1309,7 @@ export default function App() {
           {/* Right Section */}
           <div className="flex items-center gap-2 shrink-0">
             {/* Undo / Redo */}
-            <div className="flex items-center gap-1 mr-1 pr-2 border-r border-zinc-200">
+            <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={handleUndo}
@@ -1069,44 +1331,6 @@ export default function App() {
                 <span className="text-sm font-semibold select-none">↻</span>
               </button>
             </div>
-
-            {/* Preview Button */}
-            <button
-              type="button"
-              onClick={() =>
-                setActiveMode(activeMode === 'preview' ? 'edit' : 'preview')
-              }
-              className={`h-8 px-3 rounded-md text-xs font-medium border flex items-center gap-1.5 transition-colors cursor-pointer ${
-                activeMode === 'preview'
-                  ? 'bg-zinc-100 text-zinc-900 border-zinc-300'
-                  : 'bg-white text-zinc-700 hover:text-zinc-900 hover:bg-zinc-50 border-zinc-200 shadow-2xs'
-              }`}
-              title="Toggle Live Preview"
-            >
-              <svg
-                className="w-3.5 h-3.5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-              <span>Preview</span>
-            </button>
-
-            {/* Access Form Button */}
-            <button
-              type="button"
-              onClick={() => setActiveMode('preview')}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white h-8 px-3.5 rounded-md text-xs font-medium shadow-2xs cursor-pointer flex items-center gap-1.5 transition-colors"
-              title="Access Live Form"
-            >
-              <span>Access Form</span>
-            </button>
           </div>
         </header>
 
@@ -1138,9 +1362,10 @@ export default function App() {
               activeFormId={activeForm.id}
               onSelectTenant={handleSelectTenant}
               onCreateTenant={handleCreateTenant}
+              onUpdateTenant={handleUpdateTenant}
               onEditForm={handleEditFormFromDirectory}
               onViewForm={handleViewFormFromDirectory}
-              onViewFormSubmissions={handleViewSubmissionsFromDashboard}
+              onViewFormSubmissions={handleViewFormSubmissions}
               onCreateFormForTenant={handleCreateFormForTenant}
             />
           )}
@@ -1154,106 +1379,36 @@ export default function App() {
               activeFormId={activeForm.id}
               tenantFilter={formsTenantFilter}
               onTenantFilterChange={setFormsTenantFilter}
-              onSelectForm={(form) => {
-                setActiveTenantId(form.clientId);
-                setActiveFormId(form.id);
-                setSelectedFieldId(form.fields[0]?.id ?? null);
+              isActionModalOpen={isDirectoryModalOpen}
+              onViewForm={(form) => openDirectoryModal('preview', form)}
+              onEditForm={(form) => openDirectoryModal('edit', form)}
+              onViewFormSubmissions={(form) =>
+                openDirectoryModal('submissions', form)
+              }
+              onDeleteForm={(formId) => {
+                const target = forms.find((f) => f.id === formId);
+                if (target) {
+                  openDirectoryModal('delete', target);
+                }
               }}
-              onViewForm={handleViewFormFromDirectory}
-              onEditForm={handleEditFormFromDirectory}
-              onDeleteForm={handleDeleteForm}
               onCreateFormForTenant={handleCreateFormForTenant}
             />
           )}
 
         {activeMode === 'edit' && (
-          <div className="flex-1 flex min-h-0 min-w-0">
-            <FieldPalette
-              onAddField={(type, presetPatch) => {
-                if (type !== 'grid' && type !== 'section' && selectedField) {
-                  if (selectedField.type === 'grid') {
-                    handleAddFieldAt(type, undefined, {
-                      ...presetPatch,
-                      parentGridId: selectedField.id,
-                      gridColumn: 0,
-                    });
-                    return;
-                  }
-                  if (selectedField.parentGridId) {
-                    handleAddFieldAt(type, undefined, {
-                      ...presetPatch,
-                      parentGridId: selectedField.parentGridId,
-                      gridColumn: selectedField.gridColumn ?? 0,
-                    });
-                    return;
-                  }
-                }
-                handleAddFieldAt(type, undefined, presetPatch);
-              }}
-            />
-
-            {inspectorSide === 'left' && (
-              <PropertyInspector
-                schema={activeForm}
-                selectedField={selectedField}
-                onUpdateField={handleUpdateField}
-                onDuplicateField={handleDuplicateField}
-                onRemoveField={handleRemoveField}
-                onUpdateMetadata={handleUpdateMetadata}
-                onNavigateMode={setActiveMode}
-                onSelectField={setSelectedFieldId}
-                inspectorSide={inspectorSide}
-                onToggleInspectorSide={() =>
-                  setInspectorSide((prev) =>
-                    prev === 'right' ? 'left' : 'right',
-                  )
-                }
-              />
-            )}
-
-            <BuilderCanvas
-              schema={activeForm}
-              selectedFieldId={selectedFieldId}
-              onSelectField={setSelectedFieldId}
-              onAddFieldAt={handleAddFieldAt}
-              onMoveField={handleMoveField}
-              onMoveFieldToGrid={handleMoveFieldToGrid}
-              onDuplicateField={handleDuplicateField}
-              onRemoveField={handleRemoveField}
-              onUpdateMetadata={handleUpdateMetadata}
-              canUndo={canUndo}
-              canRedo={canRedo}
-              onUndo={handleUndo}
-              onRedo={handleRedo}
-            />
-
-            {inspectorSide === 'right' && (
-              <PropertyInspector
-                schema={activeForm}
-                selectedField={selectedField}
-                onUpdateField={handleUpdateField}
-                onDuplicateField={handleDuplicateField}
-                onRemoveField={handleRemoveField}
-                onUpdateMetadata={handleUpdateMetadata}
-                onNavigateMode={setActiveMode}
-                onSelectField={setSelectedFieldId}
-                inspectorSide={inspectorSide}
-                onToggleInspectorSide={() =>
-                  setInspectorSide((prev) =>
-                    prev === 'right' ? 'left' : 'right',
-                  )
-                }
-              />
-            )}
-          </div>
+          <Suspense fallback={<DirectoryModalSkeleton action="edit" />}>
+            {renderBuilderWorkspace(setActiveMode)}
+          </Suspense>
         )}
 
         {activeMode === 'preview' && (
-          <FormRenderer
-            key={`${activeForm.id}_${activeForm.updatedAt}`}
-            schema={activeForm}
-            onSubmitRecord={handleRecordSubmission}
-          />
+          <Suspense fallback={<DirectoryModalSkeleton action="preview" />}>
+            <FormRenderer
+              key={`${activeForm.id}_${activeForm.updatedAt}`}
+              schema={activeForm}
+              onSubmitRecord={handleRecordSubmission}
+            />
+          </Suspense>
         )}
 
         {activeMode === 'submissions' && (
@@ -1267,13 +1422,295 @@ export default function App() {
         )}
 
         {activeMode === 'schema' && (
-          <SchemaIoPanel
-            schema={activeForm}
-            onImportSchema={handleImportSchema}
-          />
+          <Suspense fallback={<DirectoryModalSkeleton action="schema" />}>
+            <SchemaIoPanel
+              schema={activeForm}
+              onImportSchema={handleImportSchema}
+            />
+          </Suspense>
         )}
       </main>
     </div>
+
+    {/* Full-Screen Pop-Up Modal: All Forms Table Actions */}
+    {isDirectoryModalOpen && directoryModal && modalForm && (
+      <div
+        ref={directoryModalRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="directory-action-modal-title"
+        className="fixed inset-0 z-40 h-screen w-screen bg-[#f4f5f7] flex flex-col overflow-hidden focus:outline-none animate-modal-enter"
+      >
+        <header className="h-12 px-4 bg-white border-b border-zinc-200 flex items-center justify-between gap-4 shrink-0">
+          <div className="flex items-center min-w-0 gap-2.5">
+            <Badge
+              variant={
+                directoryModal.action === 'delete'
+                  ? 'danger'
+                  : directoryModal.action === 'preview'
+                    ? 'success'
+                    : 'neutral'
+              }
+            >
+              {directoryModal.action === 'edit'
+                ? 'EDIT BUILDER'
+                : directoryModal.action === 'preview'
+                  ? 'LIVE PREVIEW'
+                  : directoryModal.action === 'submissions'
+                    ? 'SUBMISSIONS'
+                    : directoryModal.action === 'schema'
+                      ? 'SCHEMA JSON'
+                      : 'DELETE FORM'}
+            </Badge>
+
+            <span
+              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-zinc-100 border border-zinc-200 font-mono text-[11px] text-zinc-600 truncate max-w-[160px] shrink-0"
+              title={`Tenant: ${modalTenant.name} (${modalTenant.primaryDomain})`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+              {modalTenant.name}
+            </span>
+
+            <span
+              id="directory-action-modal-title"
+              className="font-semibold text-xs sm:text-sm text-zinc-900 truncate"
+            >
+              {modalForm.title}
+            </span>
+
+            <span className="hidden sm:inline-flex items-center rounded border border-zinc-200 bg-zinc-50 px-2 py-0.5 font-mono text-xs text-zinc-500 shrink-0">
+              /{modalForm.slug}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {directoryModal.action !== 'delete' && (
+              <>
+                {directoryModal.action === 'edit' && (
+                  <div className="flex items-center gap-1 pr-2 border-r border-zinc-200">
+                    <button
+                      type="button"
+                      onClick={handleUndo}
+                      disabled={!canUndo}
+                      className="h-8 w-8 rounded-md flex items-center justify-center text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      title="Undo (Ctrl+Z)"
+                      aria-label="Undo"
+                    >
+                      <span className="text-sm font-semibold select-none">
+                        ↺
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRedo}
+                      disabled={!canRedo}
+                      className="h-8 w-8 rounded-md flex items-center justify-center text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      title="Redo (Ctrl+Y)"
+                      aria-label="Redo"
+                    >
+                      <span className="text-sm font-semibold select-none">
+                        ↻
+                      </span>
+                    </button>
+                  </div>
+                )}
+
+                <div className="hidden md:flex items-center gap-1 pr-2 border-r border-zinc-200">
+                  {(
+                    [
+                      ['edit', 'Builder'],
+                      ['preview', 'Preview'],
+                      ['submissions', 'Submissions'],
+                      ['schema', 'Schema'],
+                    ] as const
+                  ).map(([actionKey, label]) => (
+                    <Button
+                      key={actionKey}
+                      size="xs"
+                      variant={
+                        directoryModal.action === actionKey
+                          ? 'primary'
+                          : 'ghost'
+                      }
+                      onClick={() =>
+                        setDirectoryModal({
+                          action: actionKey,
+                          formId: modalForm.id,
+                        })
+                      }
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={closeDirectoryModal}
+              aria-label="Close modal"
+              title="Close (Esc)"
+              className="shrink-0"
+            >
+              <svg
+                className="w-3.5 h-3.5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M18 6 6 18" />
+                <path d="m6 6 12 12" />
+              </svg>
+              <span>Close</span>
+              <span className="font-mono text-[10px] text-zinc-400 border border-zinc-200 bg-zinc-50 px-1 rounded-xs">
+                Esc
+              </span>
+            </Button>
+          </div>
+        </header>
+
+        <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden relative">
+          {directoryModal.action !== 'delete' && !isModalContentReady ? (
+            <DirectoryModalSkeleton action={directoryModal.action} />
+          ) : (
+            <Suspense
+              fallback={
+                directoryModal.action === 'delete' ? null : (
+                  <DirectoryModalSkeleton action={directoryModal.action} />
+                )
+              }
+            >
+              <div
+                key={activeModalKey}
+                className="flex-1 flex min-h-0 min-w-0 overflow-hidden animate-modal-content-enter"
+              >
+                {directoryModal.action === 'edit' &&
+                  renderBuilderWorkspace((nextMode) => {
+                    if (nextMode === 'forms') {
+                      closeDirectoryModal();
+                    } else {
+                      setDirectoryModal((prev) =>
+                        prev ? { ...prev, action: nextMode } : null,
+                      );
+                    }
+                  })}
+
+                {directoryModal.action === 'preview' && (
+                  <FormRenderer
+                    key={`${modalForm.id}_${modalForm.updatedAt}`}
+                    schema={modalForm}
+                    onSubmitRecord={handleRecordSubmission}
+                  />
+                )}
+
+                {directoryModal.action === 'submissions' && (
+                  <SubmissionsPanel
+                    tenant={modalTenant}
+                    schema={modalForm}
+                    submissions={modalScopedSubmissions}
+                    onDeleteSubmission={handleDeleteSubmission}
+                    onClearFormSubmissions={handleClearFormSubmissions}
+                  />
+                )}
+
+                {directoryModal.action === 'schema' && (
+                  <SchemaIoPanel
+                    schema={modalForm}
+                    onImportSchema={handleImportSchema}
+                  />
+                )}
+
+                {directoryModal.action === 'delete' && (
+                  <div className="flex-1 flex items-center justify-center p-6 bg-[#f4f5f7] overflow-y-auto">
+                    <div className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-5 shadow-sm space-y-4">
+                      <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="danger">DELETE FORM</Badge>
+                          <span className="font-mono text-xs text-zinc-500">
+                            {modalTenant.name}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <p className="text-sm font-semibold text-zinc-900">
+                          Delete &ldquo;{modalForm.title}&rdquo;?
+                        </p>
+                        <p className="text-xs text-zinc-600 leading-relaxed">
+                          This action permanently deletes the form schema and{' '}
+                          <span className="font-semibold text-zinc-900">
+                            {modalScopedSubmissions.length}{' '}
+                            {modalScopedSubmissions.length === 1
+                              ? 'submission'
+                              : 'submissions'}
+                          </span>{' '}
+                          recorded under this form.
+                        </p>
+                        {modalTenantFormCount <= 1 && (
+                          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                            This is the last remaining form for{' '}
+                            {modalTenant.name}. A fresh blank form will be
+                            created automatically for this tenant.
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 space-y-1.5 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-zinc-500">Route</span>
+                          <span className="font-mono text-zinc-800">
+                            /{modalForm.slug}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-zinc-500">Fields</span>
+                          <span className="font-mono text-zinc-800">
+                            {modalForm.fields.length}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-zinc-500">Submissions</span>
+                          <span className="font-mono text-zinc-800">
+                            {modalScopedSubmissions.length}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-200">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={closeDirectoryModal}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => {
+                            handleDeleteForm(modalForm.id);
+                            closeDirectoryModal();
+                          }}
+                        >
+                          Delete Form
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Suspense>
+          )}
+        </div>
+      </div>
+    )}
 
     {/* Modal: New Form (Header Action) */}
     {showHeaderNewFormModal && (

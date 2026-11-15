@@ -121,6 +121,6 @@ The dashboard catalog supports reactive search, status filtering, view toggles, 
 
 1. **Neutral Zinc Palette**: Strictly adhere to monochrome `zinc` shades (`border-zinc-200 dark:border-zinc-800`, `bg-zinc-50 dark:bg-zinc-900`).
 2. **Hairline 1px Geometry**: All cards, modals, tables, and search controls use 1px borders instead of drop-shadows.
-3. **Compact Enterprise Density**: Standardized 36px (`h-9`) inputs, buttons, and select dropdowns; 8px (`rounded-lg`) maximum radius.
+3. **Compact Enterprise Density & Custom Dropdowns**: Standardized 36px (`h-9`) inputs, buttons, and custom `Select` / `FilterDropdown` popover menus (with `role="listbox"`, `menuHeading`, emerald selection state + checkmark, and `meta` badges); 8px (`rounded-lg`) maximum radius.
 4. **Technical Monospace Typography**: Monospace uppercase badges (`font-mono text-xs uppercase tracking-wider`) for slugs, status pills, and question/submission counters.
 5. **No Visual Slop**: Zero purple/violet gradients, zero pastel blob cards, and zero bubbly `rounded-2xl` containers.

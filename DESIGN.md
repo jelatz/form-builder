@@ -48,6 +48,11 @@ Use the `zinc` scale exclusively for layout structure, text hierarchy, and borde
   - Technical metadata (field IDs, type badges, tenant slugs, timestamps): `font-mono text-xs uppercase tracking-wider text-zinc-400`.
 - **Micro-Interactions**:
   - Subtle transitions (`transition-colors duration-150`) and tactile press feedback (`active:scale-[0.98]`).
+- **Custom Dropdown & Select Menus (`Select` / `FilterDropdown` in `src/shared/ui/index.tsx`)**:
+  - **No raw native `<select>` elements**: All dropdowns across workspace toolbars, modals, inspectors, and form fields must use the shared custom `Select` or `FilterDropdown` popover primitives.
+  - **Trigger button**: `h-9` (`36px`, or `h-8` in compact toolbars), `rounded-md`, `border border-zinc-200 bg-white`, rotating chevron icon, and emerald focus/open ring (`border-emerald-500 ring-2 ring-emerald-500/20`).
+  - **Portaled popover listbox**: Rendered via `createPortal` (`z-50 rounded-lg border border-zinc-200 bg-white p-1.5 shadow-lg`) with optional uppercase mono heading (`font-mono text-[10px] uppercase tracking-wider text-zinc-400`), viewport-edge clamping, and automatic upward flip.
+  - **Option rows**: `role="option"` buttons showing bold/medium `label`, optional muted mono `description` below, optional right-aligned bordered `meta` pill (`rounded px-1.5 py-0.5 font-mono text-[10px] border`), and emerald selection highlight (`bg-emerald-50/80 text-emerald-950`) with a checkmark icon.
 
 ---
 
