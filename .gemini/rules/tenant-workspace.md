@@ -47,7 +47,7 @@ Access to client switching and tenant management is strictly governed by the use
 | **View Client Tenants** | Can view and switch between all registered clients. | Restricted strictly to their designated client tenant. |
 | **Create New Client Tenant** | Allowed via "Create Client" modal dialog. | Forbidden. Creation controls are hidden / disabled. |
 | **Switch Active Client** | Full dropdown selection across all tenants in D1. | Locked. Dropdown is disabled or rendered as static badge. |
-| **Edit Tenant Domain & Settings** | Allowed (primary domain, allowed origins). | Read-only access or restricted to form-level editing. |
+| **Edit Tenant Slug & Settings** | Allowed (name, unique workspace slug). | Read-only access or restricted to form-level editing. |
 | **Delete Client Tenant** | Allowed with safeguard checks (see below). | Forbidden. |
 
 ### Security Invariants
@@ -56,30 +56,24 @@ Access to client switching and tenant management is strictly governed by the use
 
 ---
 
-## 4. White-Labeled Domains & Allowed Origin Verification
+## 4. Slug-Based Tenant Routing & Isolation
 
-Each `ClientTenant` represents an independent white-labeled organization with explicit domain routing rules:
+Each `ClientTenant` represents an isolated organization identified by a unique URL-safe `slug`:
 
 ```typescript
 export interface ClientTenant {
   id: string;
   name: string;
   slug: string;
-  primaryDomain: string;
-  allowedDomains: string[];
   industry?: string;
   status: 'active' | 'suspended';
   createdAt: string;
 }
 ```
 
-### Domain Routing Rules
-1. **Primary Domain**: The canonical domain where the client's forms and branded runners are hosted (e.g., `forms.acmecorp.com`).
-2. **Allowed Domains (`allowed_domains_json`)**: An array of authorized cross-origin domains permitted to embed forms via `iframe` or submit responses via public runtime endpoints (`/api/public/submit`).
-3. **Origin Matching Invariants**:
-   - Every public submission verification checks the incoming `Origin` or `Referer` header against the client's `primaryDomain` and `allowedDomains`.
-   - Wildcards or open origins (`*`) are prohibited in production.
-   - Unrecognized origins are rejected with `HTTP 403 Forbidden`.
+### Slug Routing Rules
+1. **App-Hosted URLs**: Forms are served on the application's own origin under `/<tenant-slug>/<form-slug>`.
+2. **Slug Uniqueness**: Tenant slugs must be globally unique across `clients` and form slugs must satisfy `UNIQUE(client_id, slug)`.
 
 ---
 
@@ -135,4 +129,4 @@ Client mutations must provide instantaneous feedback while ensuring rock-solid d
    - Neutral `zinc` token palette only.
    - Compact 36px (`h-9`) inputs and buttons.
    - 1px hairline structural borders (`border-zinc-200 dark:border-zinc-800`).
-   - Monospace typography for tenant IDs, slugs, and domain names.
+   - Monospace typography for tenant IDs and slugs.

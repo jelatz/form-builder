@@ -1,16 +1,26 @@
 import { useState, type ChangeEvent } from 'react';
 import {
   parseFormSchemaJson,
+  type ClientTenant,
   type FormSchema,
 } from '../../domain/form-schema';
-import { Badge, Button } from '../../shared/ui';
+import { Badge, Button, Select } from '../../shared/ui';
 
 export interface SchemaIoPanelProps {
   schema: FormSchema;
+  availableForms?: FormSchema[];
+  tenants?: ClientTenant[];
+  onSelectForm?: (form: FormSchema) => void;
   onImportSchema: (schema: FormSchema) => void;
 }
 
-export function SchemaIoPanel({ schema, onImportSchema }: SchemaIoPanelProps) {
+export function SchemaIoPanel({
+  schema,
+  availableForms,
+  tenants,
+  onSelectForm,
+  onImportSchema,
+}: SchemaIoPanelProps) {
   const formattedSchemaJson = JSON.stringify(schema, null, 2);
   const [importDraft, setImportDraft] = useState('');
   const [statusMessage, setStatusMessage] = useState<{
@@ -76,11 +86,47 @@ export function SchemaIoPanel({ schema, onImportSchema }: SchemaIoPanelProps) {
     event.target.value = '';
   };
 
+  const tenantMap = new Map((tenants ?? []).map((t) => [t.id, t]));
+
   return (
     <main
       aria-label="Schema JSON I/O"
       className="flex-1 overflow-y-auto p-6 bg-[#f4f5f7]"
     >
+      <div className="w-full space-y-4">
+        {availableForms && availableForms.length > 0 && onSelectForm && (
+          <div className="p-3 rounded-lg border border-zinc-200 bg-white shadow-2xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Badge variant="neutral">SCHEMA BROWSER</Badge>
+              <span className="text-xs text-zinc-500">
+                Inspecting {schema.title}
+              </span>
+            </div>
+            <div className="w-full sm:w-80">
+              <Select
+                aria-label="Select form schema"
+                menuHeading="Available Form Schemas"
+                value={schema.id}
+                onValueChange={(formId) => {
+                  const found = availableForms.find((f) => f.id === formId);
+                  if (found) onSelectForm(found);
+                }}
+                options={availableForms.map((f) => {
+                  const tenant = tenantMap.get(f.clientId);
+                  return {
+                    value: f.id,
+                    label: f.title,
+                    description: tenant
+                      ? `${tenant.name} (/${f.slug})`
+                      : `/${f.slug}`,
+                    meta: `${f.fields.length}f`,
+                  };
+                })}
+              />
+            </div>
+          </div>
+        )}
+
       <div className="w-full grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Export / Live AST View */}
         <section className="p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs flex flex-col space-y-3">
@@ -177,6 +223,7 @@ export function SchemaIoPanel({ schema, onImportSchema }: SchemaIoPanelProps) {
             </Button>
           </div>
         </section>
+      </div>
       </div>
     </main>
   );

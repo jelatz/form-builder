@@ -3,7 +3,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* Defensive overlay protection against external browser extension frames/popups outside #root */
-body > *:not(#root):not(script):not(style),
+body > *:not(#root):not(script):not(style):not([data-app-portal="true"]),
 html > *:not(head):not(body) {
   pointer-events: none !important;
 }
@@ -17,11 +17,20 @@ html, body, #root {
   color-scheme: light;
 }
 
+html.dark, html.dark body, html.dark #root {
+  color-scheme: dark;
+}
+
 body {
   background-color: #f4f5f7;
   color: #18181b;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+html.dark body {
+  background-color: #09090b;
+  color: #f4f4f5;
 }
 
 /* Subtle scrollbar */
@@ -41,6 +50,170 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #a1a1aa;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+}
+
+/* Dark mode surface, border, text, and semantic token overrides for light utilities without explicit dark: classes */
+.dark .bg-\[\#f4f5f7\]:not([class*="dark:bg-"]) {
+  background-color: #09090b;
+}
+
+.dark .bg-white:not([class*="dark:bg-"]) {
+  background-color: #18181b;
+}
+
+.dark .bg-zinc-50:not([class*="dark:bg-"]),
+.dark .bg-zinc-50\/30:not([class*="dark:bg-"]),
+.dark .bg-zinc-50\/50:not([class*="dark:bg-"]),
+.dark .bg-zinc-50\/70:not([class*="dark:bg-"]),
+.dark .bg-zinc-50\/80:not([class*="dark:bg-"]) {
+  background-color: rgba(24, 24, 27, 0.75);
+}
+
+.dark .bg-zinc-100:not([class*="dark:bg-"]),
+.dark .bg-zinc-100\/80:not([class*="dark:bg-"]) {
+  background-color: #27272a;
+}
+
+.dark .bg-zinc-200:not([class*="dark:bg-"]),
+.dark .bg-zinc-200\/80:not([class*="dark:bg-"]) {
+  background-color: #27272a;
+}
+
+.dark .bg-zinc-900.text-white:not([class*="dark:bg-"]) {
+  background-color: #f4f4f5;
+  border-color: #f4f4f5;
+  color: #09090b;
+}
+
+.dark .border-zinc-200:not([class*="dark:border-"]),
+.dark .border-zinc-200\/80:not([class*="dark:border-"]),
+.dark .border-zinc-200\/90:not([class*="dark:border-"]),
+.dark .border-zinc-100:not([class*="dark:border-"]) {
+  border-color: #27272a;
+}
+
+.dark .border-zinc-300:not([class*="dark:border-"]) {
+  border-color: #3f3f46;
+}
+
+.dark .divide-zinc-200 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-zinc-200 > :not(:last-child),
+.dark .divide-zinc-100 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-zinc-100 > :not(:last-child) {
+  border-color: #27272a;
+}
+
+.dark .divide-zinc-300 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-zinc-300 > :not(:last-child) {
+  border-color: #3f3f46;
+}
+
+.dark .text-zinc-950:not([class*="dark:text-"]),
+.dark .text-zinc-900:not([class*="dark:text-"]) {
+  color: #f4f4f5;
+}
+
+.dark .text-zinc-800:not([class*="dark:text-"]),
+.dark .text-zinc-700:not([class*="dark:text-"]) {
+  color: #e4e4e7;
+}
+
+.dark .text-zinc-600:not([class*="dark:text-"]),
+.dark .text-zinc-500:not([class*="dark:text-"]) {
+  color: #a1a1aa;
+}
+
+.dark .hover\:bg-zinc-50:hover:not([class*="dark:hover:bg-"]),
+.dark .hover\:bg-zinc-50\/60:hover:not([class*="dark:hover:bg-"]) {
+  background-color: rgba(39, 39, 42, 0.6);
+}
+
+.dark .hover\:bg-zinc-100:hover:not([class*="dark:hover:bg-"]),
+.dark .hover\:bg-zinc-100\/80:hover:not([class*="dark:hover:bg-"]) {
+  background-color: rgba(39, 39, 42, 0.85);
+}
+
+.dark .hover\:text-zinc-900:hover:not([class*="dark:hover:text-"]),
+.dark .hover\:text-zinc-950:hover:not([class*="dark:hover:text-"]),
+.dark .hover\:text-zinc-800:hover:not([class*="dark:hover:text-"]),
+.dark .hover\:text-zinc-700:hover:not([class*="dark:hover:text-"]) {
+  color: #f4f4f5;
+}
+
+.dark .hover\:border-zinc-300:hover:not([class*="dark:hover:border-"]) {
+  border-color: #3f3f46;
+}
+
+.dark .bg-emerald-50:not([class*="dark:bg-"]),
+.dark .bg-emerald-50\/50:not([class*="dark:bg-"]),
+.dark .bg-emerald-50\/60:not([class*="dark:bg-"]),
+.dark .bg-emerald-50\/80:not([class*="dark:bg-"]) {
+  background-color: rgba(6, 78, 59, 0.28);
+}
+
+.dark .bg-emerald-50\/10:not([class*="dark:bg-"]),
+.dark .bg-emerald-50\/20:not([class*="dark:bg-"]),
+.dark .bg-emerald-50\/25:not([class*="dark:bg-"]) {
+  background-color: rgba(6, 78, 59, 0.16);
+}
+
+.dark .border-emerald-200:not([class*="dark:border-"]),
+.dark .border-emerald-300:not([class*="dark:border-"]) {
+  border-color: rgba(6, 95, 70, 0.65);
+}
+
+.dark .text-emerald-700:not([class*="dark:text-"]),
+.dark .text-emerald-800:not([class*="dark:text-"]),
+.dark .text-emerald-950:not([class*="dark:text-"]) {
+  color: #6ee7b7;
+}
+
+.dark .bg-rose-50:not([class*="dark:bg-"]) {
+  background-color: rgba(76, 5, 25, 0.35);
+}
+
+.dark .border-rose-200:not([class*="dark:border-"]) {
+  border-color: rgba(136, 19, 55, 0.65);
+}
+
+.dark .text-rose-700:not([class*="dark:text-"]),
+.dark .text-rose-600:not([class*="dark:text-"]) {
+  color: #fda4af;
+}
+
+.dark .bg-amber-50:not([class*="dark:bg-"]) {
+  background-color: rgba(69, 26, 3, 0.35);
+}
+
+.dark .border-amber-200:not([class*="dark:border-"]),
+.dark .border-amber-300\/80:not([class*="dark:border-"]) {
+  border-color: rgba(120, 53, 15, 0.65);
+}
+
+.dark .text-amber-700:not([class*="dark:text-"]) {
+  color: #fcd34d;
+}
+
+.dark .bg-sky-50:not([class*="dark:bg-"]),
+.dark .bg-sky-50\/70:not([class*="dark:bg-"]) {
+  background-color: rgba(12, 74, 110, 0.3);
+}
+
+.dark .border-sky-200:not([class*="dark:border-"]),
+.dark .border-sky-200\/80:not([class*="dark:border-"]) {
+  border-color: rgba(7, 89, 133, 0.65);
+}
+
+.dark .text-sky-600:not([class*="dark:text-"]) {
+  color: #38bdf8;
 }
 
 @keyframes modal-enter {

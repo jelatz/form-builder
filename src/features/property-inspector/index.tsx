@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { FormField, FormSchema } from '../../domain/form-schema';
 import { bindFieldModule } from '../../fields/registry';
-import { Badge, Button, Input, Label } from '../../shared/ui';
+import { THEME_OPTIONS, type ThemeMode } from '../../shared/lib';
+import { Badge, Button, Input, Label, Select } from '../../shared/ui';
 
 export interface PropertyInspectorProps {
   schema: FormSchema;
@@ -20,6 +21,8 @@ export interface PropertyInspectorProps {
   onSelectField?: (fieldId: string | null) => void;
   inspectorSide?: 'right' | 'left';
   onToggleInspectorSide?: () => void;
+  themeMode?: ThemeMode;
+  onThemeModeChange?: (mode: ThemeMode) => void;
 }
 
 export function PropertyInspector({
@@ -33,6 +36,8 @@ export function PropertyInspector({
   onSelectField,
   inspectorSide = 'right',
   onToggleInspectorSide,
+  themeMode,
+  onThemeModeChange,
 }: PropertyInspectorProps) {
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<'field' | 'settings'>(
@@ -94,20 +99,41 @@ export function PropertyInspector({
     });
   };
 
+  const focusThemeModeControl = () => {
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const themeControl = document.getElementById('form_meta_theme_mode');
+        if (themeControl) {
+          themeControl.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+          });
+          try {
+            themeControl.focus({ preventScroll: true });
+          } catch {
+            // Ignore focus failure
+          }
+        }
+      }, 50);
+    });
+  };
+
   const handleThemesStylingClick = () => {
     setIsDrawerOpen(true);
-    setActiveTab('field');
-    if (!selectedField && schema.fields[0]) {
-      onSelectField?.(schema.fields[0].id);
+    if (!selectedField || activeTab === 'settings') {
+      setActiveTab('settings');
+      focusThemeModeControl();
+      return;
     }
+
+    setActiveTab('field');
     requestAnimationFrame(() => {
       setTimeout(() => {
         const container = document.querySelector<HTMLElement>(
           '[data-inspector-scroll-container]',
         );
-        if (container) {
-          const layoutTarget =
-            Array.from(
+        const layoutTarget = container
+          ? Array.from(
               container.querySelectorAll<HTMLButtonElement>('button'),
             ).find(
               (btn) =>
@@ -116,18 +142,22 @@ export function PropertyInspector({
             ) ||
             container.querySelector<HTMLElement>(
               'input[id^="insp_divider_"], input[id*="divider"]',
-            );
-          if (layoutTarget) {
-            layoutTarget.scrollIntoView({
-              behavior: 'smooth',
-              block: 'center',
-            });
-            try {
-              layoutTarget.focus({ preventScroll: true });
-            } catch {
-              // Ignore focus failure
-            }
+            )
+          : null;
+
+        if (layoutTarget) {
+          layoutTarget.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+          });
+          try {
+            layoutTarget.focus({ preventScroll: true });
+          } catch {
+            // Ignore focus failure
           }
+        } else {
+          setActiveTab('settings');
+          focusThemeModeControl();
         }
       }, 50);
     });
@@ -283,6 +313,24 @@ export function PropertyInspector({
                   placeholder="Submit"
                 />
               </div>
+
+              {onThemeModeChange && (
+                <div className="pt-3 border-t border-zinc-200 space-y-1.5">
+                  <Label htmlFor="form_meta_theme_mode">
+                    Appearance / Theme Mode
+                  </Label>
+                  <Select
+                    id="form_meta_theme_mode"
+                    aria-label="Appearance / Theme Mode"
+                    menuHeading="Appearance"
+                    value={themeMode ?? 'light'}
+                    onValueChange={(val) =>
+                      onThemeModeChange(val as ThemeMode)
+                    }
+                    options={THEME_OPTIONS}
+                  />
+                </div>
+              )}
 
               <div className="pt-3 border-t border-zinc-200 space-y-1">
                 <div className="flex items-center justify-between text-xs">

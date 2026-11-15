@@ -105,8 +105,6 @@ export interface ClientTenant {
   id: string;
   name: string;
   slug: string;
-  primaryDomain: string;
-  allowedDomains: string[];
   createdAt: string;
 }
 
@@ -127,7 +125,6 @@ export interface SubmissionRecord {
   clientId: string;
   values: Record<string, unknown>;
   submittedAt: string;
-  sourceHost?: string;
 }
 ```
 
@@ -215,5 +212,5 @@ When vibe-coding, implement and verify one milestone at a time:
 - [x] **`schema-io`**: View, copy, download, and import raw `FormSchema` JSON with structural validation.
 
 ### Milestone 5: Multi-Tenant Management & Submission Storage
-- [x] **Tenant & Form Switcher**: Create/switch between `ClientTenant` workspaces (with `primaryDomain` and `allowedDomains`) and manage multiple forms per tenant (`UNIQUE(clientId, slug)`).
+- [x] **Tenant & Form Switcher**: Create/switch between `ClientTenant` workspaces (scoped by unique `slug`) and manage multiple forms per tenant (`UNIQUE(clientId, slug)`).
 - [x] **Submission Storage & Viewer**: Store form submissions (`SubmissionRecord`) scoped to `clientId` and `formId` (persisted via storage service / Cloudflare D1 API adapter with optimistic UI updates), inspect submitted payloads in a tabular `Submissions` tab, export CSV/JSON, and clear/retry records.

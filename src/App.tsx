@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import {
   addField,
   duplicateField,
@@ -15,20 +15,52 @@ import {
   type SubmissionRecord,
 } from './domain/form-schema';
 import {
+  AuthPage,
+  canAccessWorkspace,
+  fetchCurrentSessionAction,
+  isSuperadmin as checkIsSuperadmin,
+  logoutUserAction,
+  type AuthSession,
+} from './features/auth';
+import {
   FormsDirectoryPanel,
+  GlobalSubmissionsPanel,
   SubmissionsPanel,
   TenantDashboardPanel,
+  TenantsDirectoryPanel,
+  type ManagedTenantUser,
 } from './features/tenant-submissions';
 import {
+  apiClearFormSubmissions,
+  apiCreateForm,
+  apiCreateSubmission,
+  apiCreateTenant,
+  apiCreateTenantUser,
+  apiDeleteForm,
+  apiDeleteSubmission,
+  apiDeleteTenant,
+  apiDeleteTenantUser,
+  apiFetchPublicForm,
+  apiSubmitPublicForm,
+  apiUpdateForm,
+  apiUpdateTenant,
+  apiUpdateTenantUser,
+  fetchSuperadminSnapshot,
+  fetchTenantSnapshot,
   filterFormsByTenant,
   filterSubmissionsByTenantForm,
-  loadWorkspaceSnapshot,
-  persistForms,
-  persistSubmissions,
-  persistTenants,
 } from './features/tenant-submissions/storage';
+import { ensureUniqueTenantSlug } from './features/tenant-submissions/tenant-utils';
 import { createDefaultField } from './fields/registry';
-import { createId } from './shared/lib';
+import {
+  applyResolvedTheme,
+  loadThemeMode,
+  persistThemeMode,
+  resolveThemeMode,
+  THEME_OPTIONS,
+  type ResolvedTheme,
+  type ThemeMode,
+} from './shared/lib';
 import { Badge, Button, Input, Label, Select, Skeleton } from './shared/ui';
 
 const BuilderCanvas = lazy(() =>
@@ -59,11 +91,111 @@ const SchemaIoPanel = lazy(() =>
 
 export type WorkspaceMode =
   | 'dashboard'
+  | 'tenants'
   | 'forms'
   | 'edit'
   | 'preview'
   | 'submissions'
+  | 'submissions_explorer'
   | 'schema';
+
+type AppRoute =
+  | { kind: 'workspace' }
+  | { kind: 'tenant_login'; tenantSlug: string }
+  | { kind: 'public_form'; tenantSlug: string; formSlug: string };
+
+function parseAppRoute(pathname: string): AppRoute {
+  const tenantLoginMatch = pathname.match(/^\/t\/([^/]+)\/login\/?$/i);
+  if (tenantLoginMatch?.[1]) {
+    return {
+      kind: 'tenant_login',
+      tenantSlug: decodeURIComponent(tenantLoginMatch[1]).toLowerCase(),
+    };
+  }
+
+  const publicFormMatch = pathname.match(/^\/f\/([^/]+)\/([^/]+)\/?$/i);
+  if (publicFormMatch?.[1] && publicFormMatch[2]) {
+    return {
+      kind: 'public_form',
+      tenantSlug: decodeURIComponent(publicFormMatch[1]).toLowerCase(),
+      formSlug: decodeURIComponent(publicFormMatch[2]).toLowerCase(),
+    };
+  }
+
+  return { kind: 'workspace' };
+}
+
+function PublicFormPage({
+  tenantSlug,
+  formSlug,
+}: {
+  tenantSlug: string;
+  formSlug: string;
+}) {
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [data, setData] = useState<{
+    tenant: { id: string; name: string; slug: string };
+    form: FormSchema;
+  } | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string>('');
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetchPublicForm(tenantSlug, formSlug)
+      .then((res) => {
+        if (cancelled) return;
+        setData(res);
+        setStatus('ready');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setErrorMsg(
+          err instanceof Error ? err.message : 'Published form not found.',
+        );
+        setStatus('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantSlug, formSlug]);
+
+  if (status === 'loading') {
+    return <DirectoryModalSkeleton action="preview" />;
+  }
+
+  if (status === 'error' || !data) {
+    return (
+      <div className="min-h-screen w-screen bg-[#f4f5f7] flex items-center justify-center p-4">
+        <div className="max-w-md w-full rounded-lg border border-zinc-200 bg-white p-6 shadow-2xs space-y-3">
+          <Badge variant="danger">UNAVAILABLE</Badge>
+          <h1 className="text-base font-semibold text-zinc-900">
+            Form not found
+          </h1>
+          <p className="text-xs text-zinc-500">
+            {errorMsg ||
+              'This form does not exist, is unpublished, or the workspace is inactive.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen w-screen bg-[#f4f5f7] flex flex-col">
+      <Suspense fallback={<DirectoryModalSkeleton action="preview" />}>
+        <FormRenderer
+          key={`${data.form.id}_${data.form.updatedAt}`}
+          schema={data.form}
+          publicMode={true}
+          tenantName={data.tenant.name}
+          onSubmitRecord={async (values) => {
+            await apiSubmitPublicForm(tenantSlug, formSlug, values);
+          }}
+        />
+      </Suspense>
+    </div>
+  );
+}
 
 type DirectoryModalAction =
   | 'edit'
@@ -218,41 +350,67 @@ function DirectoryModalSkeleton({
 }
 
 export default function App() {
-  const [initialSnapshot] = useState(() => loadWorkspaceSnapshot());
-  const [tenants, setTenants] = useState<ClientTenant[]>(
-    initialSnapshot.tenants,
-  );
-  const [forms, setForms] = useState<FormSchema[]>(initialSnapshot.forms);
-  const [submissions, setSubmissions] = useState<SubmissionRecord[]>(
-    initialSnapshot.submissions,
+  const [route, setRoute] = useState<AppRoute>(() =>
+    typeof window !== 'undefined'
+      ? parseAppRoute(window.location.pathname)
+      : { kind: 'workspace' },
   );
 
-  const [activeTenantId, setActiveTenantId] = useState<string>(
-    initialSnapshot.tenants[0]?.id ?? 'tenant_acme',
+  const navigatePath = useCallback((nextPath: string) => {
+    if (typeof window === 'undefined') return;
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, '', nextPath);
+    }
+    setRoute(parseAppRoute(nextPath));
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handlePopState = () => {
+      setRoute(parseAppRoute(window.location.pathname));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  const [authSession, setAuthSession] = useState<AuthSession | null>(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(
+    route.kind !== 'public_form',
   );
+  const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(false);
 
-  const activeTenant =
-    tenants.find((t) => t.id === activeTenantId) ?? tenants[0]!;
-  const tenantForms = filterFormsByTenant(forms, activeTenant.id);
+  const [tenants, setTenants] = useState<ClientTenant[]>([]);
+  const [forms, setForms] = useState<FormSchema[]>([]);
+  const [submissions, setSubmissions] = useState<SubmissionRecord[]>([]);
+  const [tenantUsers, setTenantUsers] = useState<ManagedTenantUser[]>([]);
 
-  const [activeFormId, setActiveFormId] = useState<string>(
-    tenantForms[0]?.id ?? initialSnapshot.forms[0]!.id,
-  );
+  const [activeTenantId, setActiveTenantId] = useState<string>('');
+  const [activeFormId, setActiveFormId] = useState<string>('');
+  const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
 
+  const activeTenant = tenants.find((t) => t.id === activeTenantId) ?? tenants[0];
+  const tenantForms = activeTenant
+    ? filterFormsByTenant(forms, activeTenant.id)
+    : [];
   const activeForm =
-    tenantForms.find((f) => f.id === activeFormId) ?? tenantForms[0]!;
+    tenantForms.find((f) => f.id === activeFormId) ?? tenantForms[0];
 
   const [historyByForm, setHistoryByForm] = useState<
     Record<string, FormHistoryEntry>
   >({});
 
-  const [selectedFieldId, setSelectedFieldId] = useState<string | null>(
-    activeForm.fields[0]?.id ?? null,
-  );
   const [inspectorSide, setInspectorSide] = useState<'right' | 'left'>('right');
   const [activeMode, setActiveMode] = useState<WorkspaceMode>('dashboard');
   const [formsTenantFilter, setFormsTenantFilter] = useState<string>('ALL');
   const [isSidebarMinimized, setIsSidebarMinimized] = useState(false);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => loadThemeMode());
+  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() =>
+    resolveThemeMode('system'),
+  );
+  const resolvedTheme: ResolvedTheme =
+    themeMode === 'system' ? systemTheme : themeMode;
   const [syncError, setSyncError] = useState<string | null>(null);
   const [showHeaderNewFormModal, setShowHeaderNewFormModal] = useState(false);
   const [newHeaderFormTitle, setNewHeaderFormTitle] = useState('');
@@ -343,6 +501,7 @@ export default function App() {
         if (
           el instanceof HTMLElement &&
           el.id !== 'root' &&
+          el.dataset.appPortal !== 'true' &&
           !IGNORED_TAGS.has(el.tagName)
         ) {
           el.style.setProperty('pointer-events', 'none', 'important');
@@ -366,32 +525,139 @@ export default function App() {
     };
   }, []);
 
-  const activeHistory = historyByForm[activeForm.id] ?? {
-    past: [],
-    future: [],
-  };
+  useEffect(() => {
+    persistThemeMode(themeMode);
+    applyResolvedTheme(resolvedTheme);
+
+    if (
+      themeMode !== 'system' ||
+      typeof window === 'undefined' ||
+      typeof window.matchMedia !== 'function'
+    ) {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleMediaChange = () => {
+      const nextSystemTheme: ResolvedTheme = mediaQuery.matches
+        ? 'dark'
+        : 'light';
+      setSystemTheme(nextSystemTheme);
+      applyResolvedTheme(nextSystemTheme);
+    };
+
+    mediaQuery.addEventListener('change', handleMediaChange);
+    return () => {
+      mediaQuery.removeEventListener('change', handleMediaChange);
+    };
+  }, [themeMode, resolvedTheme]);
+
+  const loadWorkspaceData = useCallback(async (session: AuthSession) => {
+    setIsWorkspaceLoading(true);
+    setSyncError(null);
+    try {
+      const snapshot = checkIsSuperadmin(session.user)
+        ? await fetchSuperadminSnapshot()
+        : session.tenant
+          ? await fetchTenantSnapshot(session.tenant)
+          : { tenants: [], forms: [], submissions: [], users: [] };
+
+      setTenants(snapshot.tenants);
+      setForms(snapshot.forms);
+      setSubmissions(snapshot.submissions);
+      setTenantUsers(snapshot.users);
+
+      const defaultTenantId = checkIsSuperadmin(session.user)
+        ? (snapshot.tenants[0]?.id ?? '')
+        : (session.user.clientId ?? snapshot.tenants[0]?.id ?? '');
+
+      setActiveTenantId(defaultTenantId);
+      setFormsTenantFilter(
+        checkIsSuperadmin(session.user) ? 'ALL' : defaultTenantId,
+      );
+
+      const firstTenantForm = filterFormsByTenant(
+        snapshot.forms,
+        defaultTenantId,
+      )[0];
+      if (firstTenantForm) {
+        setActiveFormId(firstTenantForm.id);
+        setSelectedFieldId(firstTenantForm.fields[0]?.id ?? null);
+      } else {
+        setActiveFormId('');
+        setSelectedFieldId(null);
+      }
+    } catch (err) {
+      setSyncError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to load workspace data from server.',
+      );
+    } finally {
+      setIsWorkspaceLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (route.kind === 'public_form') {
+      return;
+    }
+
+    let cancelled = false;
+    fetchCurrentSessionAction()
+      .then((session) => {
+        if (cancelled) return;
+        setAuthSession(session);
+        if (session && canAccessWorkspace(session.user)) {
+          void loadWorkspaceData(session);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAuthSession(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsAuthChecking(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [route.kind, loadWorkspaceData]);
+
+  const userIsSuperadmin = checkIsSuperadmin(authSession?.user);
+
+  const activeHistory = activeForm
+    ? (historyByForm[activeForm.id] ?? { past: [], future: [] })
+    : { past: [], future: [] };
 
   const canUndo = activeHistory.past.length > 0;
   const canRedo = activeHistory.future.length > 0;
 
   const selectedField =
-    activeForm.fields.find((f) => f.id === selectedFieldId) ?? null;
+    activeForm?.fields.find((f) => f.id === selectedFieldId) ?? null;
 
-  const scopedSubmissions = filterSubmissionsByTenantForm(
-    submissions,
-    activeTenant.id,
-    activeForm.id,
-  );
+  const scopedSubmissions =
+    activeTenant && activeForm
+      ? filterSubmissionsByTenantForm(
+          submissions,
+          activeTenant.id,
+          activeForm.id,
+        )
+      : [];
 
   /**
    * Optimistically updates the active FormSchema in `forms`, records Undo/Redo history,
-   * and rolls back to the previous snapshot if async persistence fails.
+   * and rolls back to the previous snapshot if API persistence fails.
    */
   const commitFormSchema = (
     nextSchema: FormSchema,
     recordHistory = true,
   ) => {
-    if (nextSchema === activeForm) return;
+    if (!activeForm || nextSchema === activeForm) return;
     const prevFormsSnapshot = forms;
     const nextForms = forms.map((f) =>
       f.id === nextSchema.id ? nextSchema : f,
@@ -411,13 +677,27 @@ export default function App() {
       });
     }
 
-    persistForms(nextForms).catch(() => {
-      setForms(prevFormsSnapshot);
-      setSyncError('Failed to persist form schema; rolled back changes.');
-    });
+    apiUpdateForm(nextSchema.clientId, nextSchema.id, {
+      title: nextSchema.title,
+      slug: nextSchema.slug,
+      description: nextSchema.description,
+      submitButtonText: nextSchema.submitButtonText,
+      isPublished: nextSchema.isPublished,
+      fields: nextSchema.fields,
+    })
+      .then((persisted) => {
+        setForms((curr) =>
+          curr.map((f) => (f.id === persisted.id ? persisted : f)),
+        );
+      })
+      .catch(() => {
+        setForms(prevFormsSnapshot);
+        setSyncError('Failed to persist form schema; rolled back changes.');
+      });
   };
 
   const handleUndo = () => {
+    if (!activeForm) return;
     const previous = activeHistory.past[activeHistory.past.length - 1];
     if (!previous) return;
 
@@ -432,6 +712,7 @@ export default function App() {
   };
 
   const handleRedo = () => {
+    if (!activeForm) return;
     const next = activeHistory.future[0];
     if (!next) return;
 
@@ -446,6 +727,9 @@ export default function App() {
   };
 
   const handleSelectTenant = (tenantId: string, navigateToForms = false) => {
+    if (!userIsSuperadmin && tenantId !== authSession?.user.clientId) {
+      return;
+    }
     setActiveTenantId(tenantId);
     const nextTenantForms = filterFormsByTenant(forms, tenantId);
     const firstForm = nextTenantForms[0];
@@ -466,55 +750,23 @@ export default function App() {
     setSelectedFieldId(target.fields[0]?.id ?? null);
   };
 
-  const handleCreateTenant = (input: {
-    name: string;
-    primaryDomain: string;
-    allowedDomains: string[];
-  }) => {
-    const prevTenants = tenants;
-    const prevForms = forms;
-
-    const slug = input.name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '');
-    const newTenant: ClientTenant = {
-      id: createId('tenant'),
-      name: input.name,
-      slug: slug || 'tenant',
-      primaryDomain: input.primaryDomain,
-      allowedDomains: input.allowedDomains,
-      createdAt: new Date().toISOString(),
-    };
-
-    const defaultField = createDefaultField('text');
-    const starterForm: FormSchema = {
-      id: createId('form'),
-      clientId: newTenant.id,
-      slug: 'default-intake',
-      title: `${newTenant.name} Intake Form`,
-      description: `Default form for ${newTenant.primaryDomain}`,
-      submitButtonText: 'Submit',
-      fields: [defaultField],
-      updatedAt: new Date().toISOString(),
-    };
-
-    const nextTenants = [...tenants, newTenant];
-    const nextForms = [...forms, starterForm];
-
-    setTenants(nextTenants);
-    setForms(nextForms);
-    setActiveTenantId(newTenant.id);
-    setActiveFormId(starterForm.id);
-    setSelectedFieldId(defaultField.id);
-
-    Promise.all([persistTenants(nextTenants), persistForms(nextForms)]).catch(
-      () => {
-        setTenants(prevTenants);
-        setForms(prevForms);
-        setSyncError('Failed to create tenant workspace; rolled back.');
-      },
-    );
+  const handleCreateTenant = (input: { name: string; slug: string }) => {
+    if (!userIsSuperadmin) return;
+    void apiCreateTenant(input)
+      .then(({ tenant, starterForm }) => {
+        setTenants((prev) => [...prev, tenant]);
+        setForms((prev) => [starterForm, ...prev]);
+        setActiveTenantId(tenant.id);
+        setActiveFormId(starterForm.id);
+        setSelectedFieldId(starterForm.fields[0]?.id ?? null);
+      })
+      .catch((err) => {
+        setSyncError(
+          err instanceof Error
+            ? err.message
+            : 'Failed to create tenant workspace.',
+        );
+      });
   };
 
   const handleUpdateTenant = (
@@ -522,10 +774,9 @@ export default function App() {
     input: {
       name: string;
       slug: string;
-      primaryDomain: string;
-      allowedDomains: string[];
     },
   ) => {
+    if (!userIsSuperadmin) return;
     const prevTenants = tenants;
     const target = tenants.find((t) => t.id === tenantId);
     if (!target) return;
@@ -533,9 +784,7 @@ export default function App() {
     const updatedTenant: ClientTenant = {
       ...target,
       name: input.name,
-      slug: input.slug,
-      primaryDomain: input.primaryDomain,
-      allowedDomains: input.allowedDomains,
+      slug: ensureUniqueTenantSlug(input.slug || input.name, tenants, tenantId),
     };
 
     const nextTenants = tenants.map((t) =>
@@ -543,52 +792,134 @@ export default function App() {
     );
 
     setTenants(nextTenants);
-    persistTenants(nextTenants).catch(() => {
-      setTenants(prevTenants);
-      setSyncError('Failed to update tenant details; rolled back.');
+    apiUpdateTenant(tenantId, input)
+      .then((persisted) => {
+        setTenants((curr) =>
+          curr.map((t) => (t.id === persisted.id ? persisted : t)),
+        );
+      })
+      .catch(() => {
+        setTenants(prevTenants);
+        setSyncError('Failed to update tenant details; rolled back.');
+      });
+  };
+
+  const handleInspectTenant = (tenantId: string) => {
+    handleSelectTenant(tenantId, false);
+    setActiveMode('dashboard');
+  };
+
+  const handleDeleteTenant = (tenantId: string) => {
+    if (!userIsSuperadmin || tenants.length <= 1) return;
+
+    const prevTenants = tenants;
+    const prevForms = forms;
+    const prevSubmissions = submissions;
+    const prevUsers = tenantUsers;
+
+    const nextTenants = tenants.filter((t) => t.id !== tenantId);
+    const fallbackTenant = nextTenants[0];
+    if (!fallbackTenant) return;
+
+    const removedFormIds = new Set(
+      forms.filter((f) => f.clientId === tenantId).map((f) => f.id),
+    );
+    const nextForms = forms.filter((f) => f.clientId !== tenantId);
+    const nextSubmissions = submissions.filter((s) => s.clientId !== tenantId);
+    const nextUsers = tenantUsers.filter((u) => u.clientId !== tenantId);
+
+    const fallbackForm = filterFormsByTenant(nextForms, fallbackTenant.id)[0];
+
+    setTenants(nextTenants);
+    setForms(nextForms);
+    setSubmissions(nextSubmissions);
+    setTenantUsers(nextUsers);
+    setHistoryByForm((prev) => {
+      const nextHistory = { ...prev };
+      for (const formId of removedFormIds) {
+        delete nextHistory[formId];
+      }
+      return nextHistory;
     });
+
+    if (activeTenantId === tenantId) {
+      setActiveTenantId(fallbackTenant.id);
+      if (fallbackForm) {
+        setActiveFormId(fallbackForm.id);
+        setSelectedFieldId(fallbackForm.fields[0]?.id ?? null);
+      }
+    }
+
+    if (formsTenantFilter === tenantId) {
+      setFormsTenantFilter('ALL');
+    }
+
+    apiDeleteTenant(tenantId).catch(() => {
+      setTenants(prevTenants);
+      setForms(prevForms);
+      setSubmissions(prevSubmissions);
+      setTenantUsers(prevUsers);
+      setSyncError('Failed to delete tenant workspace; rolled back.');
+    });
+  };
+
+  const handleCreateTenantUser = async (input: {
+    clientId: string;
+    username: string;
+    displayName: string;
+    password: string;
+    role: 'tenant_admin' | 'tenant_member';
+  }) => {
+    const created = await apiCreateTenantUser(input);
+    setTenantUsers((prev) => [...prev, created]);
+  };
+
+  const handleUpdateTenantUser = async (
+    userId: string,
+    input: {
+      role?: 'tenant_admin' | 'tenant_member';
+      isActive?: boolean;
+      password?: string;
+    },
+  ) => {
+    const updated = await apiUpdateTenantUser(userId, input);
+    setTenantUsers((prev) =>
+      prev.map((u) => (u.id === updated.id ? updated : u)),
+    );
+  };
+
+  const handleDeleteTenantUser = async (userId: string) => {
+    await apiDeleteTenantUser(userId);
+    setTenantUsers((prev) => prev.filter((u) => u.id !== userId));
   };
 
   const handleCreateFormForTenant = (targetTenantId: string, title: string) => {
-    const prevForms = forms;
-    const targetTenantForms = filterFormsByTenant(forms, targetTenantId);
-    const baseSlug =
-      title
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '') || 'untitled-form';
-
-    const existingSlugs = new Set(targetTenantForms.map((f) => f.slug));
-    const uniqueSlug = existingSlugs.has(baseSlug)
-      ? `${baseSlug}-${targetTenantForms.length + 1}`
-      : baseSlug;
-
+    const effectiveTenantId = userIsSuperadmin
+      ? targetTenantId
+      : (authSession?.user.clientId ?? targetTenantId);
     const starterField = createDefaultField('text');
-    const newForm: FormSchema = {
-      id: createId('form'),
-      clientId: targetTenantId,
-      slug: uniqueSlug,
+
+    void apiCreateForm(effectiveTenantId, {
       title,
-      description: '',
-      submitButtonText: 'Submit',
+      isPublished: true,
       fields: [starterField],
-      updatedAt: new Date().toISOString(),
-    };
-
-    const nextForms = [...forms, newForm];
-    setForms(nextForms);
-    setActiveTenantId(targetTenantId);
-    setActiveFormId(newForm.id);
-    setSelectedFieldId(starterField.id);
-    setActiveMode('edit');
-
-    persistForms(nextForms).catch(() => {
-      setForms(prevForms);
-      setSyncError('Failed to create form; rolled back.');
-    });
+    })
+      .then((newForm) => {
+        setForms((prev) => [newForm, ...prev]);
+        setActiveTenantId(effectiveTenantId);
+        setActiveFormId(newForm.id);
+        setSelectedFieldId(newForm.fields[0]?.id ?? null);
+        setActiveMode('edit');
+      })
+      .catch((err) => {
+        setSyncError(
+          err instanceof Error ? err.message : 'Failed to create form.',
+        );
+      });
   };
 
   const handleCreateForm = (title: string) => {
+    if (!activeTenant) return;
     handleCreateFormForTenant(activeTenant.id, title);
   };
 
@@ -647,34 +978,9 @@ export default function App() {
     const prevSubmissions = submissions;
 
     const remainingForms = forms.filter((f) => f.id !== formId);
-    const remainingTenantForms = filterFormsByTenant(
-      remainingForms,
-      targetForm.clientId,
-    );
-
-    let nextForms = remainingForms;
-    let fallbackForm: FormSchema | undefined = remainingTenantForms[0];
-
-    // If this was the last remaining form for its tenant, auto-create a fresh blank form
-    if (remainingTenantForms.length === 0) {
-      const blankField = createDefaultField('text');
-      const freshForm: FormSchema = {
-        id: createId('form'),
-        clientId: targetForm.clientId,
-        slug: 'untitled-form',
-        title: 'Untitled Form',
-        description: '',
-        submitButtonText: 'Submit',
-        fields: [blankField],
-        updatedAt: new Date().toISOString(),
-      };
-      nextForms = [...remainingForms, freshForm];
-      fallbackForm = freshForm;
-    }
-
     const nextSubmissions = submissions.filter((s) => s.formId !== formId);
 
-    setForms(nextForms);
+    setForms(remainingForms);
     setSubmissions(nextSubmissions);
     setHistoryByForm((prev) => {
       const nextHistory = { ...prev };
@@ -682,19 +988,28 @@ export default function App() {
       return nextHistory;
     });
 
-    if (activeForm.id === formId && fallbackForm) {
-      setActiveFormId(fallbackForm.id);
-      setSelectedFieldId(fallbackForm.fields[0]?.id ?? null);
-    }
+    apiDeleteForm(targetForm.clientId, formId)
+      .then((res) => {
+        let fallbackForm = filterFormsByTenant(
+          remainingForms,
+          targetForm.clientId,
+        )[0];
 
-    Promise.all([
-      persistForms(nextForms),
-      persistSubmissions(nextSubmissions),
-    ]).catch(() => {
-      setForms(prevForms);
-      setSubmissions(prevSubmissions);
-      setSyncError('Failed to delete form; rolled back changes.');
-    });
+        if (res.replacementForm) {
+          fallbackForm = res.replacementForm;
+          setForms([...remainingForms, res.replacementForm]);
+        }
+
+        if (activeForm?.id === formId && fallbackForm) {
+          setActiveFormId(fallbackForm.id);
+          setSelectedFieldId(fallbackForm.fields[0]?.id ?? null);
+        }
+      })
+      .catch(() => {
+        setForms(prevForms);
+        setSubmissions(prevSubmissions);
+        setSyncError('Failed to delete form; rolled back changes.');
+      });
   };
 
   const handleAddFieldAt = (
@@ -702,6 +1017,7 @@ export default function App() {
     index?: number,
     presetPatch?: Partial<FormField>,
   ) => {
+    if (!activeForm) return;
     const newField = createDefaultField(type, undefined, presetPatch);
     const nextSchema = addField(activeForm, newField, index);
     commitFormSchema(nextSchema);
@@ -709,6 +1025,7 @@ export default function App() {
   };
 
   const handleMoveField = (fromIndex: number, toIndex: number) => {
+    if (!activeForm) return;
     commitFormSchema(moveField(activeForm, fromIndex, toIndex));
   };
 
@@ -717,6 +1034,7 @@ export default function App() {
     parentGridId: string | undefined,
     gridColumn?: 0 | 1 | 2,
   ) => {
+    if (!activeForm) return;
     commitFormSchema(
       moveFieldToGrid(activeForm, fieldId, parentGridId, gridColumn),
     );
@@ -724,6 +1042,7 @@ export default function App() {
   };
 
   const handleDuplicateField = (fieldId: string) => {
+    if (!activeForm) return;
     const nextSchema = duplicateField(activeForm, fieldId);
     commitFormSchema(nextSchema);
     const sourceIdx = activeForm.fields.findIndex((f) => f.id === fieldId);
@@ -734,6 +1053,7 @@ export default function App() {
   };
 
   const handleRemoveField = (fieldId: string) => {
+    if (!activeForm) return;
     const nextSchema = removeField(activeForm, fieldId);
     commitFormSchema(nextSchema);
     if (selectedFieldId === fieldId) {
@@ -742,6 +1062,7 @@ export default function App() {
   };
 
   const handleUpdateField = (updated: FormField) => {
+    if (!activeForm) return;
     commitFormSchema(updateField(activeForm, updated.id, updated));
   };
 
@@ -750,10 +1071,12 @@ export default function App() {
       Pick<FormSchema, 'title' | 'description' | 'slug' | 'submitButtonText'>
     >,
   ) => {
+    if (!activeForm) return;
     commitFormSchema(updateFormMetadata(activeForm, patch));
   };
 
   const handleImportSchema = (imported: FormSchema) => {
+    if (!activeForm || !activeTenant) return;
     const scopedImport: FormSchema = {
       ...imported,
       id: activeForm.id,
@@ -770,131 +1093,210 @@ export default function App() {
     }
   };
 
-  const handleRecordSubmission = (values: FormValues) => {
-    const prevSubmissions = submissions;
-    const newRecord: SubmissionRecord = {
-      id: createId('sub'),
-      formId: activeForm.id,
-      clientId: activeTenant.id,
+  const handleRecordSubmission = async (
+    values: FormValues,
+    targetForm: FormSchema | undefined = activeForm,
+  ) => {
+    if (!targetForm) return;
+    const created = await apiCreateSubmission(
+      targetForm.clientId,
+      targetForm.id,
       values,
-      submittedAt: new Date().toISOString(),
-      sourceHost: activeTenant.primaryDomain,
-    };
-
-    const nextSubmissions = [newRecord, ...submissions];
-    setSubmissions(nextSubmissions);
-
-    persistSubmissions(nextSubmissions).catch(() => {
-      setSubmissions(prevSubmissions);
-      setSyncError('Failed to save submission; rolled back.');
-    });
+    );
+    setSubmissions((prev) => [created, ...prev]);
   };
 
   const handleDeleteSubmission = (submissionId: string) => {
+    const target = submissions.find((s) => s.id === submissionId);
+    const targetClientId = target?.clientId ?? activeTenant?.id;
+    if (!targetClientId) return;
+
     const prevSubmissions = submissions;
     const nextSubmissions = submissions.filter((s) => s.id !== submissionId);
     setSubmissions(nextSubmissions);
 
-    persistSubmissions(nextSubmissions).catch(() => {
+    apiDeleteSubmission(targetClientId, submissionId).catch(() => {
+      setSubmissions(prevSubmissions);
+      setSyncError('Failed to delete submission; rolled back.');
+    });
+  };
+
+  const handleDeleteSubmissionScoped = (
+    clientId: string,
+    submissionId: string,
+  ) => {
+    const prevSubmissions = submissions;
+    setSubmissions((curr) => curr.filter((s) => s.id !== submissionId));
+
+    apiDeleteSubmission(clientId, submissionId).catch(() => {
       setSubmissions(prevSubmissions);
       setSyncError('Failed to delete submission; rolled back.');
     });
   };
 
   const handleClearFormSubmissions = () => {
+    if (!activeTenant || !activeForm) return;
     const prevSubmissions = submissions;
     const nextSubmissions = submissions.filter(
       (s) => !(s.clientId === activeTenant.id && s.formId === activeForm.id),
     );
     setSubmissions(nextSubmissions);
 
-    persistSubmissions(nextSubmissions).catch(() => {
+    apiClearFormSubmissions(activeTenant.id, activeForm.id).catch(() => {
       setSubmissions(prevSubmissions);
       setSyncError('Failed to clear submissions; rolled back.');
     });
   };
 
+  const handleLogout = () => {
+    void logoutUserAction().finally(() => {
+      setAuthSession(null);
+      setTenants([]);
+      setForms([]);
+      setSubmissions([]);
+      setTenantUsers([]);
+      setActiveMode('dashboard');
+    });
+  };
+
+  const renderThemeSelect = (id?: string) => (
+    <Select
+      id={id}
+      aria-label="Theme mode"
+      menuHeading="Appearance"
+      value={themeMode}
+      options={THEME_OPTIONS}
+      onValueChange={(val) => setThemeMode(val as ThemeMode)}
+      align="right"
+      icon={
+        resolvedTheme === 'dark' ? (
+          <svg
+            className="w-3.5 h-3.5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+          </svg>
+        ) : (
+          <svg
+            className="w-3.5 h-3.5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2" />
+            <path d="M12 20v2" />
+            <path d="m4.93 4.93 1.41 1.41" />
+            <path d="m17.66 17.66 1.41 1.41" />
+            <path d="M2 12h2" />
+            <path d="M20 12h2" />
+            <path d="m6.34 17.66-1.41 1.41" />
+            <path d="m19.07 4.93-1.41 1.41" />
+          </svg>
+        )
+      }
+      className="h-8 w-28 sm:w-32 text-xs font-medium px-2.5"
+    />
+  );
+
   const renderBuilderWorkspace = (
     onNavigateMode: (
       mode: 'forms' | 'edit' | 'preview' | 'submissions' | 'schema',
     ) => void,
-  ) => (
-    <div className="flex-1 flex min-h-0 min-w-0">
-      <FieldPalette
-        onAddField={(type, presetPatch) => {
-          if (type !== 'grid' && type !== 'section' && selectedField) {
-            if (selectedField.type === 'grid') {
-              handleAddFieldAt(type, undefined, {
-                ...presetPatch,
-                parentGridId: selectedField.id,
-                gridColumn: 0,
-              });
-              return;
+  ) => {
+    if (!activeForm) return null;
+    return (
+      <div className="flex-1 flex min-h-0 min-w-0">
+        <FieldPalette
+          onAddField={(type, presetPatch) => {
+            if (type !== 'grid' && type !== 'section' && selectedField) {
+              if (selectedField.type === 'grid') {
+                handleAddFieldAt(type, undefined, {
+                  ...presetPatch,
+                  parentGridId: selectedField.id,
+                  gridColumn: 0,
+                });
+                return;
+              }
+              if (selectedField.parentGridId) {
+                handleAddFieldAt(type, undefined, {
+                  ...presetPatch,
+                  parentGridId: selectedField.parentGridId,
+                  gridColumn: selectedField.gridColumn ?? 0,
+                });
+                return;
+              }
             }
-            if (selectedField.parentGridId) {
-              handleAddFieldAt(type, undefined, {
-                ...presetPatch,
-                parentGridId: selectedField.parentGridId,
-                gridColumn: selectedField.gridColumn ?? 0,
-              });
-              return;
-            }
-          }
-          handleAddFieldAt(type, undefined, presetPatch);
-        }}
-      />
+            handleAddFieldAt(type, undefined, presetPatch);
+          }}
+        />
 
-      {inspectorSide === 'left' && (
-        <PropertyInspector
+        {inspectorSide === 'left' && (
+          <PropertyInspector
+            schema={activeForm}
+            selectedField={selectedField}
+            onUpdateField={handleUpdateField}
+            onDuplicateField={handleDuplicateField}
+            onRemoveField={handleRemoveField}
+            onUpdateMetadata={handleUpdateMetadata}
+            onNavigateMode={onNavigateMode}
+            onSelectField={setSelectedFieldId}
+            inspectorSide={inspectorSide}
+            onToggleInspectorSide={() =>
+              setInspectorSide((prev) => (prev === 'right' ? 'left' : 'right'))
+            }
+            themeMode={themeMode}
+            onThemeModeChange={(mode) => setThemeMode(mode)}
+          />
+        )}
+
+        <BuilderCanvas
           schema={activeForm}
-          selectedField={selectedField}
-          onUpdateField={handleUpdateField}
+          selectedFieldId={selectedFieldId}
+          onSelectField={setSelectedFieldId}
+          onAddFieldAt={handleAddFieldAt}
+          onMoveField={handleMoveField}
+          onMoveFieldToGrid={handleMoveFieldToGrid}
           onDuplicateField={handleDuplicateField}
           onRemoveField={handleRemoveField}
           onUpdateMetadata={handleUpdateMetadata}
-          onNavigateMode={onNavigateMode}
-          onSelectField={setSelectedFieldId}
-          inspectorSide={inspectorSide}
-          onToggleInspectorSide={() =>
-            setInspectorSide((prev) => (prev === 'right' ? 'left' : 'right'))
-          }
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
         />
-      )}
 
-      <BuilderCanvas
-        schema={activeForm}
-        selectedFieldId={selectedFieldId}
-        onSelectField={setSelectedFieldId}
-        onAddFieldAt={handleAddFieldAt}
-        onMoveField={handleMoveField}
-        onMoveFieldToGrid={handleMoveFieldToGrid}
-        onDuplicateField={handleDuplicateField}
-        onRemoveField={handleRemoveField}
-        onUpdateMetadata={handleUpdateMetadata}
-        canUndo={canUndo}
-        canRedo={canRedo}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-      />
-
-      {inspectorSide === 'right' && (
-        <PropertyInspector
-          schema={activeForm}
-          selectedField={selectedField}
-          onUpdateField={handleUpdateField}
-          onDuplicateField={handleDuplicateField}
-          onRemoveField={handleRemoveField}
-          onUpdateMetadata={handleUpdateMetadata}
-          onNavigateMode={onNavigateMode}
-          onSelectField={setSelectedFieldId}
-          inspectorSide={inspectorSide}
-          onToggleInspectorSide={() =>
-            setInspectorSide((prev) => (prev === 'right' ? 'left' : 'right'))
-          }
-        />
-      )}
-    </div>
-  );
+        {inspectorSide === 'right' && (
+          <PropertyInspector
+            schema={activeForm}
+            selectedField={selectedField}
+            onUpdateField={handleUpdateField}
+            onDuplicateField={handleDuplicateField}
+            onRemoveField={handleRemoveField}
+            onUpdateMetadata={handleUpdateMetadata}
+            onNavigateMode={onNavigateMode}
+            onSelectField={setSelectedFieldId}
+            inspectorSide={inspectorSide}
+            onToggleInspectorSide={() =>
+              setInspectorSide((prev) => (prev === 'right' ? 'left' : 'right'))
+            }
+            themeMode={themeMode}
+            onThemeModeChange={(mode) => setThemeMode(mode)}
+          />
+        )}
+      </div>
+    );
+  };
 
   const modalForm =
     isDirectoryModalOpen && directoryModal
@@ -903,27 +1305,115 @@ export default function App() {
   const modalTenant = modalForm
     ? tenants.find((t) => t.id === modalForm.clientId) ?? activeTenant
     : activeTenant;
-  const modalScopedSubmissions = modalForm
-    ? filterSubmissionsByTenantForm(submissions, modalTenant.id, modalForm.id)
-    : [];
+  const modalScopedSubmissions =
+    modalForm && modalTenant
+      ? filterSubmissionsByTenantForm(submissions, modalTenant.id, modalForm.id)
+      : [];
   const modalTenantFormCount = modalForm
     ? filterFormsByTenant(forms, modalForm.clientId).length
     : 0;
 
+  if (route.kind === 'public_form') {
+    return (
+      <PublicFormPage
+        key={`${route.tenantSlug}_${route.formSlug}`}
+        tenantSlug={route.tenantSlug}
+        formSlug={route.formSlug}
+      />
+    );
+  }
+
+  if (isAuthChecking) {
+    return (
+      <div className="min-h-screen w-screen bg-[#f4f5f7] dark:bg-zinc-950 flex items-center justify-center p-4">
+        <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-5 py-3 flex items-center gap-3 shadow-sm">
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="font-mono text-xs uppercase tracking-wider text-zinc-600 dark:text-zinc-300">
+            Verifying session...
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!authSession || !canAccessWorkspace(authSession.user)) {
+    return (
+      <AuthPage
+        key={route.kind === 'tenant_login' ? route.tenantSlug : 'global'}
+        tenantSlug={route.kind === 'tenant_login' ? route.tenantSlug : undefined}
+        onAuthenticated={(session) => {
+          setAuthSession(session);
+          if (
+            route.kind === 'tenant_login' ||
+            window.location.pathname === '/login'
+          ) {
+            navigatePath('/');
+          }
+          void loadWorkspaceData(session);
+        }}
+        onNavigateGlobalLogin={() => navigatePath('/login')}
+      />
+    );
+  }
+
+  if (isWorkspaceLoading || !activeTenant || !activeForm) {
+    return (
+      <div className="min-h-screen w-screen bg-[#f4f5f7] dark:bg-zinc-950 flex items-center justify-center p-4">
+        <div className="w-full max-w-md rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 shadow-sm space-y-4">
+          <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-3">
+            <span className="font-mono text-xs font-semibold uppercase tracking-wider text-zinc-700 dark:text-zinc-200">
+              {isWorkspaceLoading ? 'Loading Workspace' : 'Workspace Unavailable'}
+            </span>
+            <Badge variant={isWorkspaceLoading ? 'neutral' : 'danger'}>
+              {isWorkspaceLoading ? 'SYNCING' : 'ERROR'}
+            </Badge>
+          </div>
+          {isWorkspaceLoading ? (
+            <div className="flex items-center gap-3 text-xs text-zinc-600 dark:text-zinc-300">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+              <span>
+                Loading forms and submissions for {authSession.user.displayName}...
+              </span>
+            </div>
+          ) : (
+            <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+              {syncError ??
+                'No workspace data could be loaded for this account.'}
+            </p>
+          )}
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-200 dark:border-zinc-800">
+            {!isWorkspaceLoading && (
+              <Button
+                size="xs"
+                variant="primary"
+                onClick={() => void loadWorkspaceData(authSession)}
+              >
+                Retry
+              </Button>
+            )}
+            <Button size="xs" variant="secondary" onClick={handleLogout}>
+              Sign Out
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="h-screen w-screen overflow-hidden bg-[#f4f5f7] text-zinc-900 flex flex-row selection:bg-emerald-100">
+    <div className="h-screen w-screen overflow-hidden bg-[#f4f5f7] text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100 flex flex-row selection:bg-emerald-100 dark:selection:bg-emerald-950/60">
       {/* Left Side Navigation */}
       <aside
         aria-label="Workspace Navigation"
         className={`${
           isSidebarMinimized ? 'w-16' : 'w-60'
-        } shrink-0 border-r border-zinc-200 bg-white flex flex-col justify-between transition-[width] duration-200 z-20`}
+        } shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col justify-between transition-[width] duration-200 z-20`}
       >
         {/* Top Section */}
         <div className="flex flex-col min-h-0 flex-1">
           {/* Brand Header */}
           <div
-            className={`h-12 border-b border-zinc-200 flex items-center shrink-0 ${
+            className={`h-12 border-b border-zinc-200 dark:border-zinc-800 flex items-center shrink-0 ${
               isSidebarMinimized
                 ? 'justify-center px-2'
                 : 'justify-between px-4'
@@ -931,7 +1421,7 @@ export default function App() {
           >
             <div className="flex items-center min-w-0">
               <div
-                className="h-7 w-7 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center shrink-0"
+                className="h-7 w-7 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-600 dark:bg-emerald-950/60 dark:border-emerald-800/70 dark:text-emerald-400 flex items-center justify-center shrink-0"
                 title="FormBuilder"
               >
                 <svg
@@ -949,7 +1439,7 @@ export default function App() {
                 </svg>
               </div>
               {!isSidebarMinimized && (
-                <span className="ml-2.5 font-mono text-xs font-semibold uppercase tracking-wider text-zinc-900 truncate">
+                <span className="ml-2.5 font-mono text-xs font-semibold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 truncate">
                   FormBuilder
                 </span>
               )}
@@ -968,7 +1458,7 @@ export default function App() {
             className="p-2 space-y-1 flex-1 overflow-y-auto"
           >
             {!isSidebarMinimized && (
-              <div className="px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+              <div className="px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
                 Workspace
               </div>
             )}
@@ -983,13 +1473,13 @@ export default function App() {
                 isSidebarMinimized
                   ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
                       activeMode === 'dashboard'
-                        ? 'bg-zinc-900 text-white'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
+                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
                     }`
                   : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
                       activeMode === 'dashboard'
-                        ? 'bg-zinc-900 text-white'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
+                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
                     }`
               }
             >
@@ -1013,8 +1503,8 @@ export default function App() {
                   <span
                     className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${
                       activeMode === 'dashboard'
-                        ? 'bg-zinc-700 text-zinc-100'
-                        : 'bg-zinc-100 text-zinc-600'
+                        ? 'bg-zinc-700 text-zinc-100 dark:bg-zinc-200 dark:text-zinc-900'
+                        : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
                     }`}
                   >
                     {tenants.length}
@@ -1023,26 +1513,81 @@ export default function App() {
               )}
             </button>
 
-            {/* Mode 1: All Forms */}
+            {/* Mode 1: All Tenants (Superadmin only) */}
+            {userIsSuperadmin && (
+              <button
+                type="button"
+                onClick={() => setActiveMode('tenants')}
+                title={`All Tenants (${tenants.length})`}
+                aria-label="All Tenants"
+                className={
+                  isSidebarMinimized
+                    ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
+                        activeMode === 'tenants'
+                          ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                          : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
+                      }`
+                    : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
+                        activeMode === 'tenants'
+                          ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                          : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
+                      }`
+                }
+              >
+                <svg
+                  className="w-4 h-4 shrink-0"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
+                  <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
+                  <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" />
+                  <path d="M10 6h4" />
+                  <path d="M10 10h4" />
+                  <path d="M10 14h4" />
+                  <path d="M10 18h4" />
+                </svg>
+                {!isSidebarMinimized && (
+                  <>
+                    <span className="truncate">All Tenants</span>
+                    <span
+                      className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${
+                        activeMode === 'tenants'
+                          ? 'bg-zinc-700 text-zinc-100 dark:bg-zinc-200 dark:text-zinc-900'
+                          : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                      }`}
+                    >
+                      {tenants.length}
+                    </span>
+                  </>
+                )}
+              </button>
+            )}
+
+            {/* Mode 2: All Forms */}
             <button
               type="button"
               onClick={() => {
-                setFormsTenantFilter('ALL');
+                setFormsTenantFilter(userIsSuperadmin ? 'ALL' : activeTenant.id);
                 setActiveMode('forms');
               }}
-              title={`All Forms (${forms.length})`}
-              aria-label="All Forms"
+              title={`${userIsSuperadmin ? 'All Forms' : 'Forms'} (${forms.length})`}
+              aria-label={userIsSuperadmin ? 'All Forms' : 'Forms'}
               className={
                 isSidebarMinimized
                   ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
                       activeMode === 'forms'
-                        ? 'bg-zinc-900 text-white'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
+                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
                     }`
                   : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
                       activeMode === 'forms'
-                        ? 'bg-zinc-900 text-white'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
+                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
                     }`
               }
             >
@@ -1062,12 +1607,14 @@ export default function App() {
               </svg>
               {!isSidebarMinimized && (
                 <>
-                  <span className="truncate">All Forms</span>
+                  <span className="truncate">
+                    {userIsSuperadmin ? 'All Forms' : 'Forms'}
+                  </span>
                   <span
                     className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${
                       activeMode === 'forms'
-                        ? 'bg-zinc-700 text-zinc-100'
-                        : 'bg-zinc-100 text-zinc-600'
+                        ? 'bg-zinc-700 text-zinc-100 dark:bg-zinc-200 dark:text-zinc-900'
+                        : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
                     }`}
                   >
                     {forms.length}
@@ -1076,7 +1623,55 @@ export default function App() {
               )}
             </button>
 
-            {/* Mode 2: Schema JSON */}
+            {/* Mode 3: Submissions Explorer */}
+            <button
+              type="button"
+              onClick={() => setActiveMode('submissions_explorer')}
+              title={`Submissions (${submissions.length})`}
+              aria-label="Submissions"
+              className={
+                isSidebarMinimized
+                  ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
+                      activeMode === 'submissions_explorer'
+                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
+                    }`
+                  : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
+                      activeMode === 'submissions_explorer'
+                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
+                    }`
+              }
+            >
+              <svg
+                className="w-4 h-4 shrink-0"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+                <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+              </svg>
+              {!isSidebarMinimized && (
+                <>
+                  <span className="truncate">Submissions</span>
+                  <span
+                    className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${
+                      activeMode === 'submissions_explorer'
+                        ? 'bg-zinc-700 text-zinc-100 dark:bg-zinc-200 dark:text-zinc-900'
+                        : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                    }`}
+                  >
+                    {submissions.length}
+                  </span>
+                </>
+              )}
+            </button>
+
+            {/* Mode 4: Schema JSON */}
             <button
               type="button"
               onClick={() => setActiveMode('schema')}
@@ -1086,13 +1681,13 @@ export default function App() {
                 isSidebarMinimized
                   ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
                       activeMode === 'schema'
-                        ? 'bg-zinc-900 text-white'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
+                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
                     }`
                   : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
                       activeMode === 'schema'
-                        ? 'bg-zinc-900 text-white'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'
+                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
                     }`
               }
             >
@@ -1117,20 +1712,20 @@ export default function App() {
 
         {/* Bottom Scope Footer */}
         <div
-          className={`border-t border-zinc-200 bg-zinc-50/70 shrink-0 ${
+          className={`border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/50 shrink-0 ${
             isSidebarMinimized ? 'p-2 flex justify-center' : 'p-3'
           }`}
         >
           {!isSidebarMinimized ? (
             <div className="space-y-0.5 truncate">
               <div
-                className="font-mono text-xs text-zinc-700 font-medium truncate"
-                title={activeTenant.primaryDomain}
+                className="font-mono text-xs text-zinc-700 dark:text-zinc-300 font-medium truncate"
+                title={`/${activeTenant.slug}`}
               >
-                {activeTenant.primaryDomain}
+                /{activeTenant.slug}
               </div>
               <div
-                className="font-mono text-xs text-zinc-500 truncate"
+                className="font-mono text-xs text-zinc-500 dark:text-zinc-400 truncate"
                 title={`/${activeForm.slug}`}
               >
                 /{activeForm.slug}
@@ -1139,10 +1734,10 @@ export default function App() {
           ) : (
             <div
               className="flex items-center justify-center"
-              title={`${activeTenant.primaryDomain} / ${activeForm.slug}`}
+              title={`/${activeTenant.slug}/${activeForm.slug}`}
             >
               <svg
-                className="w-4 h-4 text-zinc-400"
+                className="w-4 h-4 text-zinc-400 dark:text-zinc-500"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -1162,7 +1757,7 @@ export default function App() {
       {/* Right-Hand Workspace Column */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* Top Navigation Bar */}
-        <header className="h-12 px-4 bg-white border-b border-zinc-200 flex items-center justify-between gap-4 shrink-0 z-10">
+        <header className="h-12 px-4 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-4 shrink-0 z-10">
           {/* Left Section */}
           <div className="flex items-center min-w-0 gap-2.5">
             {/* Side Navigation Minimize / Expand Toggle Button */}
@@ -1180,7 +1775,7 @@ export default function App() {
                   ? 'Expand side navigation'
                   : 'Minimize side navigation (icons only)'
               }
-              className="h-8 w-8 rounded-md border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-600 hover:text-zinc-900 flex items-center justify-center transition-colors cursor-pointer shrink-0"
+              className="h-8 w-8 rounded-md border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-600 hover:text-zinc-900 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100 flex items-center justify-center transition-colors cursor-pointer shrink-0"
             >
               <svg
                 className="w-4 h-4"
@@ -1205,15 +1800,46 @@ export default function App() {
             <div className="h-4 w-px bg-zinc-200 shrink-0" />
 
             {activeMode === 'dashboard' ? (
-              <span className="font-semibold text-xs sm:text-sm text-zinc-900 truncate">
-                Tenant Dashboard
-              </span>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="font-semibold text-xs sm:text-sm text-zinc-900 truncate">
+                  Tenant Dashboard
+                </span>
+                <span
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 font-mono text-[11px] text-emerald-900 dark:bg-emerald-950/40 dark:border-emerald-900/60 dark:text-emerald-200 truncate max-w-[220px] shrink-0"
+                  title={`Selected Tenant: ${activeTenant.name} (/${activeTenant.slug})`}
+                >
+                  <span
+                    className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span className="text-[10px] uppercase text-emerald-700 dark:text-emerald-400">
+                    Selected:
+                  </span>
+                  <span className="font-semibold truncate">
+                    {activeTenant.name}
+                  </span>
+                </span>
+              </div>
+            ) : activeMode === 'tenants' ? (
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="font-semibold text-xs sm:text-sm text-zinc-900 truncate">
+                  All Tenants
+                </span>
+                <Badge variant="neutral">{tenants.length} total</Badge>
+              </div>
             ) : activeMode === 'forms' ? (
               <div className="flex items-center gap-2 min-w-0">
                 <span className="font-semibold text-xs sm:text-sm text-zinc-900 truncate">
-                  All Forms
+                  {userIsSuperadmin ? 'All Forms' : 'Forms'}
                 </span>
                 <Badge variant="neutral">{forms.length} total</Badge>
+              </div>
+            ) : activeMode === 'submissions_explorer' ? (
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="font-semibold text-xs sm:text-sm text-zinc-900 truncate">
+                  {userIsSuperadmin ? 'Global Submissions' : 'Submissions'}
+                </span>
+                <Badge variant="neutral">{submissions.length} total</Badge>
               </div>
             ) : (
               <>
@@ -1250,7 +1876,7 @@ export default function App() {
                 {/* Active Tenant context pill */}
                 <span
                   className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-zinc-100 border border-zinc-200 font-mono text-[11px] text-zinc-600 truncate max-w-[180px] shrink-0"
-                  title={`Tenant: ${activeTenant.name} (${activeTenant.primaryDomain})`}
+                  title={`Tenant: ${activeTenant.name} (/${activeTenant.slug})`}
                 >
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
                   {activeTenant.name}
@@ -1314,7 +1940,7 @@ export default function App() {
                 type="button"
                 onClick={handleUndo}
                 disabled={!canUndo}
-                className="h-8 w-8 rounded-md flex items-center justify-center text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                className="h-8 w-8 rounded-md flex items-center justify-center text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 title="Undo (Ctrl+Z)"
                 aria-label="Undo"
               >
@@ -1324,13 +1950,41 @@ export default function App() {
                 type="button"
                 onClick={handleRedo}
                 disabled={!canRedo}
-                className="h-8 w-8 rounded-md flex items-center justify-center text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                className="h-8 w-8 rounded-md flex items-center justify-center text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
                 title="Redo (Ctrl+Y)"
                 aria-label="Redo"
               >
                 <span className="text-sm font-semibold select-none">↻</span>
               </button>
             </div>
+            <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 shrink-0" />
+            {renderThemeSelect('header_theme_select')}
+            <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 shrink-0" />
+            <div
+              className="inline-flex items-center gap-2 px-2 h-8 rounded-md bg-zinc-100 border border-zinc-200 shrink-0"
+              title={`Signed in as ${authSession.user.displayName} (${authSession.user.role})`}
+            >
+              <span className="font-mono text-xs text-zinc-700 font-medium">
+                {authSession.user.username}
+              </span>
+              <Badge
+                variant={
+                  authSession.user.role === 'superadmin'
+                    ? 'success'
+                    : 'neutral'
+                }
+              >
+                {authSession.user.role}
+              </Badge>
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleLogout}
+              aria-label="Sign out"
+            >
+              Sign Out
+            </Button>
           </div>
         </header>
 
@@ -1360,6 +2014,7 @@ export default function App() {
               submissions={submissions}
               activeTenantId={activeTenant.id}
               activeFormId={activeForm.id}
+              isSuperadmin={userIsSuperadmin}
               onSelectTenant={handleSelectTenant}
               onCreateTenant={handleCreateTenant}
               onUpdateTenant={handleUpdateTenant}
@@ -1370,6 +2025,24 @@ export default function App() {
             />
           )}
 
+          {activeMode === 'tenants' && userIsSuperadmin && (
+            <TenantsDirectoryPanel
+              tenants={tenants}
+              forms={forms}
+              submissions={submissions}
+              users={tenantUsers}
+              activeTenantId={activeTenant.id}
+              onSelectTenant={handleSelectTenant}
+              onInspectTenant={handleInspectTenant}
+              onCreateTenant={handleCreateTenant}
+              onUpdateTenant={handleUpdateTenant}
+              onDeleteTenant={handleDeleteTenant}
+              onCreateTenantUser={handleCreateTenantUser}
+              onUpdateTenantUser={handleUpdateTenantUser}
+              onDeleteTenantUser={handleDeleteTenantUser}
+            />
+          )}
+
           {activeMode === 'forms' && (
             <FormsDirectoryPanel
               tenants={tenants}
@@ -1377,6 +2050,7 @@ export default function App() {
               submissions={submissions}
               activeTenantId={activeTenant.id}
               activeFormId={activeForm.id}
+              isSuperadmin={userIsSuperadmin}
               tenantFilter={formsTenantFilter}
               onTenantFilterChange={setFormsTenantFilter}
               isActionModalOpen={isDirectoryModalOpen}
@@ -1421,10 +2095,28 @@ export default function App() {
           />
         )}
 
+        {activeMode === 'submissions_explorer' && (
+          <GlobalSubmissionsPanel
+            tenants={tenants}
+            forms={forms}
+            submissions={submissions}
+            isSuperadmin={userIsSuperadmin}
+            activeTenantId={activeTenant.id}
+            onDeleteSubmission={handleDeleteSubmissionScoped}
+          />
+        )}
+
         {activeMode === 'schema' && (
           <Suspense fallback={<DirectoryModalSkeleton action="schema" />}>
             <SchemaIoPanel
               schema={activeForm}
+              availableForms={forms}
+              tenants={tenants}
+              onSelectForm={(targetForm) => {
+                setActiveTenantId(targetForm.clientId);
+                setActiveFormId(targetForm.id);
+                setSelectedFieldId(targetForm.fields[0]?.id ?? null);
+              }}
               onImportSchema={handleImportSchema}
             />
           </Suspense>
@@ -1440,9 +2132,9 @@ export default function App() {
         role="dialog"
         aria-modal="true"
         aria-labelledby="directory-action-modal-title"
-        className="fixed inset-0 z-40 h-screen w-screen bg-[#f4f5f7] flex flex-col overflow-hidden focus:outline-none animate-modal-enter"
+        className="fixed inset-0 z-40 h-screen w-screen bg-[#f4f5f7] dark:bg-zinc-950 flex flex-col overflow-hidden focus:outline-none animate-modal-enter"
       >
-        <header className="h-12 px-4 bg-white border-b border-zinc-200 flex items-center justify-between gap-4 shrink-0">
+        <header className="h-12 px-4 bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-4 shrink-0">
           <div className="flex items-center min-w-0 gap-2.5">
             <Badge
               variant={
@@ -1466,7 +2158,7 @@ export default function App() {
 
             <span
               className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-zinc-100 border border-zinc-200 font-mono text-[11px] text-zinc-600 truncate max-w-[160px] shrink-0"
-              title={`Tenant: ${modalTenant.name} (${modalTenant.primaryDomain})`}
+              title={`Tenant: ${modalTenant.name} (/${modalTenant.slug})`}
             >
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
               {modalTenant.name}
@@ -1546,6 +2238,9 @@ export default function App() {
                 </div>
               </>
             )}
+
+            {renderThemeSelect('modal_header_theme_select')}
+            <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 shrink-0" />
 
             <Button
               size="sm"

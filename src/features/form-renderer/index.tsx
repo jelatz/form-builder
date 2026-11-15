@@ -13,10 +13,17 @@ import { cn } from '../../shared/lib';
 
 export interface FormRendererProps {
   schema: FormSchema;
-  onSubmitRecord?: (values: FormValues) => void;
+  publicMode?: boolean;
+  tenantName?: string;
+  onSubmitRecord?: (values: FormValues) => void | Promise<void>;
 }
 
-export function FormRenderer({ schema, onSubmitRecord }: FormRendererProps) {
+export function FormRenderer({
+  schema,
+  publicMode = false,
+  tenantName,
+  onSubmitRecord,
+}: FormRendererProps) {
   const [values, setValues] = useState<FormValues>(() =>
     createInitialFormValues(schema),
   );
@@ -25,6 +32,8 @@ export function FormRenderer({ schema, onSubmitRecord }: FormRendererProps) {
   const [submittedPayload, setSubmittedPayload] = useState<FormValues | null>(
     null,
   );
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const handleFieldChange = (fieldId: string, nextValue: unknown) => {
     const nextValues: FormValues = { ...values, [fieldId]: nextValue };
@@ -53,10 +62,12 @@ export function FormRenderer({ schema, onSubmitRecord }: FormRendererProps) {
     setErrors({});
     setTouched({});
     setSubmittedPayload(null);
+    setSubmitError(null);
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isSubmitting) return;
 
     const allTouched: Record<string, boolean> = {};
     for (const field of schema.fields) {
@@ -69,14 +80,25 @@ export function FormRenderer({ schema, onSubmitRecord }: FormRendererProps) {
 
     const validation = validateForm(schema, values);
     setErrors(validation.errors);
+    setSubmitError(null);
 
     if (!validation.valid) {
       setSubmittedPayload(null);
       return;
     }
 
-    setSubmittedPayload(values);
-    onSubmitRecord?.(values);
+    setIsSubmitting(true);
+    try {
+      await onSubmitRecord?.(values);
+      setSubmittedPayload(values);
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : 'Failed to submit form.',
+      );
+      setSubmittedPayload(null);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const topLevelFields = schema.fields.filter((f) => !f.parentGridId);
@@ -91,7 +113,9 @@ export function FormRenderer({ schema, onSubmitRecord }: FormRendererProps) {
         {/* Runner Status Bar */}
         <div className="flex items-center justify-between bg-white border border-zinc-200 rounded-md px-4 py-2.5 shadow-2xs">
           <div className="flex items-center gap-2">
-            <Badge variant="success">LIVE PREVIEW</Badge>
+            <Badge variant={publicMode ? 'neutral' : 'success'}>
+              {publicMode ? (tenantName ?? 'PUBLIC FORM') : 'LIVE PREVIEW'}
+            </Badge>
             <span className="font-mono text-xs text-zinc-500">
               /{schema.slug}
             </span>
@@ -103,7 +127,7 @@ export function FormRenderer({ schema, onSubmitRecord }: FormRendererProps) {
 
         {/* Interactive Form Card */}
         <form
-          onSubmit={handleSubmit}
+          onSubmit={(e) => void handleSubmit(e)}
           noValidate
           className="bg-white border border-zinc-200 rounded-md shadow-xs overflow-hidden"
         >
@@ -236,6 +260,17 @@ export function FormRenderer({ schema, onSubmitRecord }: FormRendererProps) {
             </div>
           )}
 
+          {submitError && (
+            <div className="px-8 pb-4">
+              <div
+                role="alert"
+                className="px-3 py-2 rounded-md border border-rose-200 bg-rose-50 text-xs text-rose-700"
+              >
+                {submitError}
+              </div>
+            </div>
+          )}
+
           <div className="px-8 py-4 bg-zinc-50 border-t border-zinc-200 flex items-center justify-end gap-2">
             <Button type="button" variant="secondary" onClick={handleReset}>
               Clear
@@ -243,28 +278,36 @@ export function FormRenderer({ schema, onSubmitRecord }: FormRendererProps) {
             <Button
               type="submit"
               variant="primary"
-              disabled={schema.fields.length === 0}
+              disabled={schema.fields.length === 0 || isSubmitting}
             >
-              {schema.submitButtonText || 'Submit'}
+              {isSubmitting ? 'Submitting...' : schema.submitButtonText || 'Submit'}
             </Button>
           </div>
         </form>
 
-        {/* Submitted Payload Preview */}
+        {/* Submitted Confirmation / Payload Preview */}
         {submittedPayload && (
           <section
             aria-label="Submitted Payload"
             className="p-4 rounded-md border border-emerald-200 bg-emerald-50/50 space-y-2 shadow-2xs"
           >
             <div className="flex items-center justify-between">
-              <Badge variant="success">VALID SUBMISSION</Badge>
+              <Badge variant="success">
+                {publicMode ? 'SUBMISSION RECEIVED' : 'VALID SUBMISSION'}
+              </Badge>
               <span className="font-mono text-xs text-zinc-500">
                 {new Date().toISOString()}
               </span>
             </div>
-            <pre className="p-3 rounded-md bg-white border border-zinc-200 font-mono text-xs text-zinc-800 overflow-x-auto">
-              {JSON.stringify(submittedPayload, null, 2)}
-            </pre>
+            {publicMode ? (
+              <p className="text-xs text-zinc-700">
+                Thank you! Your response has been recorded.
+              </p>
+            ) : (
+              <pre className="p-3 rounded-md bg-white border border-zinc-200 font-mono text-xs text-zinc-800 overflow-x-auto">
+                {JSON.stringify(submittedPayload, null, 2)}
+              </pre>
+            )}
           </section>
         )}
       </div>

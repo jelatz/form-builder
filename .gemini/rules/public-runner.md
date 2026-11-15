@@ -6,7 +6,7 @@ This document defines the architectural boundaries, security controls, runtime l
 
 ## 1. Feature Scope & Architectural Boundary
 
-The Public Form Runner is the public-facing entry point and execution wrapper responsible for rendering published forms, verifying domain host origins, pre-populating fields from URL query parameters, handling embed modes, and submitting form payloads to Cloudflare Worker ingestion endpoints:
+The Public Form Runner is the public-facing entry point and execution wrapper responsible for rendering published forms, resolving tenant/form slugs, pre-populating fields from URL query parameters, handling embed modes, and submitting form payloads to Cloudflare Worker ingestion endpoints:
 
 ```
 src/features/public-runner/
@@ -27,29 +27,14 @@ App.tsx (or Standalone Route)  ──▶  src/features/public-runner/  ──▶
 
 ---
 
-## 2. Domain & Origin Security Enforcement
+## 2. Tenant Slug Resolution & Isolation
 
-Public forms are hosted on multi-tenant infrastructure and must enforce strict origin verification to prevent unauthorized embedding, cross-tenant impersonation, or hotlinking:
+Public forms are hosted on the application's own URL structure and resolve forms strictly by tenant and form slug:
 
-### 1. Host Origin Resolution Matrix
-When resolving or ingesting a public form, the incoming request host (`X-Forwarded-Host`, `Host`, or URL hostname) must be validated against the tenant's registered domain configuration:
-
-| Domain Field | Source / Database Column | Verification Rule |
-| :--- | :--- | :--- |
-| **Form Custom Domain** | `forms.custom_domain` | Exact hostname match for dedicated branded subdomains or custom domains (e.g., `quote.acme.com`). |
-| **Client Primary Domain** | `clients.primary_domain` | Tenant-level primary domain (e.g., `acme.com` or `portal.acme.com`). |
-| **Client Allowed Domains** | `clients.allowed_domains_json` | Approved parent site origins for iframe embedding or cross-origin form hosting (e.g., `['staging.acme.com', 'acme.com']`). |
-
-### 2. Unauthorized Origin Rejection (HTTP 403)
-- If the incoming host does not match `form.custom_domain`, `client.primary_domain`, or any entry in `client.allowed_domains`, the backend endpoints (`/api/public/resolve` and `/api/public/submit`) **MUST** immediately reject the request with `HTTP 403 Forbidden`:
-  ```json
-  { "error": "Origin or host domain is not authorized for this client tenant" }
-  ```
-- No form schema or partial tenant data may be leaked to unauthorized origins.
-
-### 3. Tenant Slug Isolation
-- Public URL paths follow the tenant pattern: `https://<domain>/<slug>` or `/p/<client-slug>/<form-slug>`.
-- The database enforces a composite unique constraint: `UNIQUE(client_id, slug)`. Form slugs are scoped strictly within the owning tenant.
+### 1. Tenant Slug Isolation
+- Public URL paths follow the tenant pattern: `/<client-slug>/<form-slug>` (or `/p/<client-slug>/<form-slug>`).
+- The database enforces a unique tenant slug (`UNIQUE(clients.slug)`) and composite form unique constraint (`UNIQUE(client_id, slug)`), ensuring form slugs are scoped strictly within the owning tenant.
+- Backend endpoints (`/api/public/resolve` and `/api/public/submit`) verify that the resolved `formId` belongs to the target `clientId` before returning schema metadata or accepting submissions.
 
 ---
 
@@ -113,7 +98,7 @@ The public runner supports two operational display modes:
   - The feature provides a pre-formatted HTML snippet for clients to copy:
     ```html
     <iframe
-      src="https://forms.client.com/intake?embed=1"
+      src="https://yourapp.com/acme-corp/intake?embed=1"
       width="100%"
       height="700"
       frameborder="0"
@@ -146,7 +131,6 @@ Form submission adheres to the system's store-and-forward reliability standard:
   {
     "formId": "form_123",
     "clientId": "client_abc",
-    "domain": "quote.acme.com",
     "values": { "name": "Jane Doe", "email": "jane@example.com" },
     "urlParams": { "utm_source": "google", "utm_campaign": "q4_leads" }
   }

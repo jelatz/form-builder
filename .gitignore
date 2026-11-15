@@ -23,6 +23,12 @@ dist-ssr
 *.sln
 *.sw?
 
+# Environment & build artifacts
+.env
+.env.*
+!.env.example
+dist-server
+
 # Cloudflare & SQLite local persistence
 .wrangler/
 *.sqlite*

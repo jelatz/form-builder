@@ -13,6 +13,26 @@ import {
   Select,
   type FilterDropdownOption,
 } from '../../shared/ui';
+import {
+  CreateTenantModal,
+  EditTenantModal,
+  SelectedCheckIcon,
+} from './tenant-modals';
+import { formatIsoTimestamp } from './tenant-utils';
+
+export {
+  GlobalSubmissionsPanel,
+  type GlobalSubmissionsPanelProps,
+} from './global-submissions';
+export { type ManagedTenantUser } from './storage';
+export {
+  TenantUsersModal,
+  type TenantUsersModalProps,
+} from './tenant-users-modal';
+export {
+  TenantsDirectoryPanel,
+  type TenantsDirectoryPanelProps,
+} from './tenants-directory';
 
 export interface TenantDashboardPanelProps {
   tenants: ClientTenant[];
@@ -20,19 +40,14 @@ export interface TenantDashboardPanelProps {
   submissions: SubmissionRecord[];
   activeTenantId: string;
   activeFormId: string;
+  isSuperadmin?: boolean;
   onSelectTenant: (tenantId: string, navigateToForms?: boolean) => void;
-  onCreateTenant: (input: {
-    name: string;
-    primaryDomain: string;
-    allowedDomains: string[];
-  }) => void;
+  onCreateTenant: (input: { name: string; slug: string }) => void;
   onUpdateTenant: (
     tenantId: string,
     input: {
       name: string;
       slug: string;
-      primaryDomain: string;
-      allowedDomains: string[];
     },
   ) => void;
   onEditForm: (form: FormSchema) => void;
@@ -41,16 +56,13 @@ export interface TenantDashboardPanelProps {
   onCreateFormForTenant: (tenantId: string, title: string) => void;
 }
 
-function formatIsoTimestamp(iso: string): string {
-  return iso.slice(0, 19).replace('T', ' ');
-}
-
 export function TenantDashboardPanel({
   tenants,
   forms,
   submissions,
   activeTenantId,
   activeFormId,
+  isSuperadmin = true,
   onSelectTenant,
   onCreateTenant,
   onUpdateTenant,
@@ -61,24 +73,16 @@ export function TenantDashboardPanel({
 }: TenantDashboardPanelProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [tenantName, setTenantName] = useState('');
-  const [tenantDomain, setTenantDomain] = useState('');
   const [showCreateFormModal, setShowCreateFormModal] = useState(false);
   const [newFormTitle, setNewFormTitle] = useState('');
   const [editingTenant, setEditingTenant] = useState<ClientTenant | null>(null);
-  const [editName, setEditName] = useState('');
-  const [editSlug, setEditSlug] = useState('');
-  const [editPrimaryDomain, setEditPrimaryDomain] = useState('');
-  const [editAllowedDomains, setEditAllowedDomains] = useState('');
 
   useEffect(() => {
-    if (!showCreateModal && !showCreateFormModal && !editingTenant) return;
+    if (!showCreateFormModal) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setShowCreateModal(false);
         setShowCreateFormModal(false);
-        setEditingTenant(null);
       }
     };
 
@@ -86,22 +90,7 @@ export function TenantDashboardPanel({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [showCreateModal, showCreateFormModal, editingTenant]);
-
-  const handleCreateTenantSubmit = () => {
-    const trimmedName = tenantName.trim();
-    const trimmedDomain = tenantDomain.trim().toLowerCase() || 'example.com';
-    if (!trimmedName) return;
-
-    onCreateTenant({
-      name: trimmedName,
-      primaryDomain: trimmedDomain,
-      allowedDomains: [trimmedDomain],
-    });
-    setTenantName('');
-    setTenantDomain('');
-    setShowCreateModal(false);
-  };
+  }, [showCreateFormModal]);
 
   const activeTenant =
     tenants.find((t) => t.id === activeTenantId) ?? tenants[0];
@@ -114,57 +103,13 @@ export function TenantDashboardPanel({
     setShowCreateFormModal(false);
   };
 
-  const openEditTenantModal = (tenant: ClientTenant) => {
-    setEditingTenant(tenant);
-    setEditName(tenant.name);
-    setEditSlug(tenant.slug);
-    setEditPrimaryDomain(tenant.primaryDomain);
-    setEditAllowedDomains(tenant.allowedDomains.join(', '));
-  };
-
-  const handleUpdateTenantSubmit = () => {
-    if (!editingTenant) return;
-    const trimmedName = editName.trim();
-    const trimmedPrimary = editPrimaryDomain.trim().toLowerCase();
-    if (!trimmedName || !trimmedPrimary) return;
-
-    const normalizedSlug =
-      editSlug
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '') ||
-      editingTenant.slug ||
-      'tenant';
-
-    const parsedAllowed = Array.from(
-      new Set(
-        editAllowedDomains
-          .split(',')
-          .map((d) => d.trim().toLowerCase())
-          .filter(Boolean),
-      ),
-    );
-
-    onUpdateTenant(editingTenant.id, {
-      name: trimmedName,
-      slug: normalizedSlug,
-      primaryDomain: trimmedPrimary,
-      allowedDomains:
-        parsedAllowed.length > 0 ? parsedAllowed : [trimmedPrimary],
-    });
-    setEditingTenant(null);
-  };
-
   const filteredTenants = tenants.filter((tenant) => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
     return (
       tenant.name.toLowerCase().includes(q) ||
       tenant.id.toLowerCase().includes(q) ||
-      tenant.slug.toLowerCase().includes(q) ||
-      tenant.primaryDomain.toLowerCase().includes(q) ||
-      tenant.allowedDomains.some((d) => d.toLowerCase().includes(q))
+      tenant.slug.toLowerCase().includes(q)
     );
   });
 
@@ -186,13 +131,6 @@ export function TenantDashboardPanel({
     null,
   );
   const latestSubmissionAt = activeTenantSubmissions[0]?.submittedAt ?? null;
-  const observedSourceHosts = Array.from(
-    new Set(
-      activeTenantSubmissions
-        .map((s) => s.sourceHost)
-        .filter((host): host is string => Boolean(host)),
-    ),
-  );
 
   return (
     <main
@@ -203,36 +141,56 @@ export function TenantDashboardPanel({
         {/* Header & Action Bar */}
         <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs">
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Badge variant="neutral">TENANT DASHBOARD</Badge>
+              {activeTenant && (
+                <span
+                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm border border-emerald-200 bg-emerald-50 font-mono text-[11px] text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200"
+                  title={`Selected tenant: ${activeTenant.name} (/${activeTenant.slug})`}
+                >
+                  <span
+                    className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span className="uppercase tracking-wider text-[10px] text-emerald-700 dark:text-emerald-400">
+                    Selected:
+                  </span>
+                  <span className="font-semibold">{activeTenant.name}</span>
+                  <span className="text-emerald-700/80 dark:text-emerald-400/80 hidden sm:inline">
+                    (/{activeTenant.slug})
+                  </span>
+                </span>
+              )}
               <span className="font-mono text-xs text-zinc-500">
                 {filteredTenants.length} of {tenants.length}{' '}
                 {tenants.length === 1 ? 'workspace' : 'workspaces'}
               </span>
             </div>
             <p className="text-xs text-zinc-500">
-              Select a client tenant workspace to inspect all tenant details,
-              forms, domains, and submission activity, or provision a new
-              tenant.
+              {isSuperadmin
+                ? 'Select a client tenant workspace to inspect all tenant details, forms, and submission activity, or provision a new tenant.'
+                : 'Inspect your workspace details, forms, and recent submission activity.'}
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Input
-              aria-label="Search tenants"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search tenant, id, or domain..."
-              className="h-8 w-56 text-xs"
-            />
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={() => setShowCreateModal(true)}
-            >
-              + New Tenant
-            </Button>
-          </div>
+          {isSuperadmin && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                aria-label="Search tenants"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search tenant, id, or slug..."
+                className="h-8 w-56 text-xs"
+              />
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => setShowCreateModal(true)}
+              >
+                + New Tenant
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Platform Summary Metrics Grid */}
@@ -272,10 +230,11 @@ export function TenantDashboardPanel({
           </div>
         </div>
 
-        {/* Master-Detail: Tenant List + Full Selected Tenant Details */}
+        {/* Master-Detail: Tenant List (Superadmin) + Full Selected Tenant Details */}
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
           {/* Left Column: Client Tenant Selection List */}
-          <div className="xl:col-span-5 space-y-3">
+          {isSuperadmin && (
+            <div className="xl:col-span-5 space-y-3">
             {filteredTenants.length === 0 ? (
               <div className="p-10 rounded-lg border border-dashed border-zinc-300 bg-white/60 text-center space-y-2">
                 <p className="text-sm font-medium text-zinc-800">
@@ -302,26 +261,45 @@ export function TenantDashboardPanel({
                     onClick={() => onSelectTenant(tenant.id, false)}
                     role="button"
                     tabIndex={0}
+                    aria-pressed={isActive}
+                    data-selected={isActive ? 'true' : 'false'}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
                         onSelectTenant(tenant.id, false);
                       }
                     }}
-                    className={`p-4 rounded-lg border bg-white shadow-2xs flex flex-col justify-between gap-3 transition-colors cursor-pointer ${
+                    className={`p-4 rounded-lg border shadow-2xs flex flex-col justify-between gap-3 transition-colors cursor-pointer ${
                       isActive
-                        ? 'border-zinc-900 ring-1 ring-zinc-900'
-                        : 'border-zinc-200 hover:border-zinc-300'
+                        ? 'border-emerald-600 bg-emerald-50/25 ring-1 ring-emerald-600/20 dark:border-emerald-500/60 dark:bg-zinc-900 dark:ring-1 dark:ring-emerald-500/20'
+                        : 'border-zinc-200 bg-white hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700'
                     }`}
                   >
                     <div className="space-y-2.5">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
+                            <span
+                              className={`inline-flex h-4 w-4 items-center justify-center rounded-full border shrink-0 transition-colors ${
+                                isActive
+                                  ? 'border-emerald-600 bg-emerald-600 text-white dark:border-emerald-500 dark:bg-emerald-500 dark:text-zinc-950'
+                                  : 'border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-950'
+                              }`}
+                              aria-hidden="true"
+                            >
+                              {isActive && (
+                                <SelectedCheckIcon className="w-2.5 h-2.5 text-white dark:text-zinc-950" />
+                              )}
+                            </span>
                             <h3 className="font-semibold text-zinc-900 text-sm truncate">
                               {tenant.name}
                             </h3>
-                            {isActive && <Badge variant="success">ACTIVE</Badge>}
+                            {isActive && (
+                              <Badge variant="success" className="gap-1">
+                                <SelectedCheckIcon className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                SELECTED
+                              </Badge>
+                            )}
                           </div>
                           <div className="flex items-center gap-2 mt-0.5 font-mono text-xs text-zinc-500">
                             <span className="truncate">/{tenant.slug}</span>
@@ -331,22 +309,6 @@ export function TenantDashboardPanel({
                         </div>
                         <span className="font-mono text-[11px] text-zinc-400 shrink-0">
                           {tenant.createdAt.slice(0, 10)}
-                        </span>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                        <span className="font-mono uppercase text-[10px] text-zinc-400">
-                          Primary:
-                        </span>
-                        <span className="font-mono text-zinc-700">
-                          {tenant.primaryDomain}
-                        </span>
-                        <span className="text-zinc-300">•</span>
-                        <span className="font-mono text-zinc-500">
-                          {tenant.allowedDomains.length}{' '}
-                          {tenant.allowedDomains.length === 1
-                            ? 'domain'
-                            : 'domains'}
                         </span>
                       </div>
 
@@ -373,14 +335,8 @@ export function TenantDashboardPanel({
                     <div
                       className="flex items-center gap-2 pt-2 border-t border-zinc-100"
                       onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
                     >
-                      <Button
-                        size="xs"
-                        variant={isActive ? 'secondary' : 'primary'}
-                        onClick={() => onSelectTenant(tenant.id, false)}
-                      >
-                        {isActive ? 'Inspecting Details' : 'Inspect Tenant'}
-                      </Button>
                       <Button
                         size="xs"
                         variant="secondary"
@@ -393,20 +349,26 @@ export function TenantDashboardPanel({
                 );
               })
             )}
-          </div>
+            </div>
+          )}
 
           {/* Right Column: Full Selected Tenant Details */}
           {activeTenant && (
             <section
               aria-label="Selected Tenant Details"
-              className="xl:col-span-7 rounded-lg border border-zinc-200 bg-white shadow-2xs p-5 space-y-5"
+              className={`${
+                isSuperadmin ? 'xl:col-span-7' : 'xl:col-span-12'
+              } rounded-lg border border-zinc-200 bg-white shadow-2xs p-5 space-y-5`}
             >
               {/* Tenant Detail Header */}
               <div className="flex flex-wrap items-start justify-between gap-3 pb-4 border-b border-zinc-200">
                 <div className="space-y-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <Badge variant="neutral">TENANT DETAILS</Badge>
-                    <Badge variant="success">ACTIVE</Badge>
+                    <Badge variant="success" className="gap-1">
+                      <SelectedCheckIcon className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                      SELECTED
+                    </Badge>
                   </div>
                   <h2 className="text-base font-semibold text-zinc-900 truncate">
                     {activeTenant.name}
@@ -417,13 +379,15 @@ export function TenantDashboardPanel({
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
-                  <Button
-                    size="xs"
-                    variant="secondary"
-                    onClick={() => openEditTenantModal(activeTenant)}
-                  >
-                    Edit Details
-                  </Button>
+                  {isSuperadmin && (
+                    <Button
+                      size="xs"
+                      variant="secondary"
+                      onClick={() => setEditingTenant(activeTenant)}
+                    >
+                      Edit Details
+                    </Button>
+                  )}
                   <Button
                     size="xs"
                     variant="secondary"
@@ -472,28 +436,6 @@ export function TenantDashboardPanel({
                     {formatIsoTimestamp(activeTenant.createdAt)}
                   </span>
                 </div>
-
-                <div className="p-3 rounded-md border border-zinc-200 bg-zinc-50/70 space-y-1">
-                  <span className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                    Primary Domain
-                  </span>
-                  <span className="block font-mono text-xs text-zinc-900 font-medium break-all">
-                    {activeTenant.primaryDomain}
-                  </span>
-                </div>
-
-                <div className="p-3 rounded-md border border-zinc-200 bg-zinc-50/70 space-y-1 sm:col-span-2">
-                  <span className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                    Allowed Domains ({activeTenant.allowedDomains.length})
-                  </span>
-                  <div className="flex flex-wrap gap-1 pt-0.5">
-                    {activeTenant.allowedDomains.map((domain) => (
-                      <Badge key={domain} variant="neutral">
-                        {domain}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
               </div>
 
               {/* Tenant Activity & Usage Summary */}
@@ -535,20 +477,6 @@ export function TenantDashboardPanel({
                   </span>
                 </div>
               </div>
-
-              {/* Observed Submission Hosts */}
-              {observedSourceHosts.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                    Observed Source Hosts:
-                  </span>
-                  {observedSourceHosts.map((host) => (
-                    <Badge key={host} variant="success">
-                      {host}
-                    </Badge>
-                  ))}
-                </div>
-              )}
 
               {/* Tenant Forms Breakdown */}
               <div className="space-y-2">
@@ -693,7 +621,6 @@ export function TenantDashboardPanel({
                         <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-[11px] uppercase text-zinc-500">
                           <th className="py-2 px-3">Record ID</th>
                           <th className="py-2 px-3">Form</th>
-                          <th className="py-2 px-3">Source Host</th>
                           <th className="py-2 px-3">Submitted At</th>
                         </tr>
                       </thead>
@@ -707,9 +634,6 @@ export function TenantDashboardPanel({
                               </td>
                               <td className="py-2 px-3 text-zinc-700">
                                 {parentForm?.title ?? sub.formId}
-                              </td>
-                              <td className="py-2 px-3 font-mono text-zinc-500">
-                                {sub.sourceHost ?? activeTenant.primaryDomain}
                               </td>
                               <td className="py-2 px-3 font-mono text-zinc-500 whitespace-nowrap">
                                 {formatIsoTimestamp(sub.submittedAt)}
@@ -728,62 +652,13 @@ export function TenantDashboardPanel({
       </div>
 
       {/* Create Tenant Modal */}
-      {showCreateModal && (
-        <div
-          className="fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4"
-          onClick={() => setShowCreateModal(false)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            className="w-full max-w-sm rounded-lg border border-zinc-200 bg-white p-4 space-y-3 shadow-lg"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-zinc-200 pb-2">
-              <span className="font-mono text-xs uppercase text-zinc-700 font-semibold">
-                New Client Tenant
-              </span>
-              <Badge variant="neutral">MULTI-TENANT</Badge>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="dashboard_new_tenant_name">Organization Name</Label>
-              <Input
-                id="dashboard_new_tenant_name"
-                value={tenantName}
-                onChange={(e) => setTenantName(e.target.value)}
-                placeholder="Stark Industries"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="dashboard_new_tenant_domain">Primary Domain</Label>
-              <Input
-                id="dashboard_new_tenant_domain"
-                value={tenantDomain}
-                onChange={(e) => setTenantDomain(e.target.value)}
-                placeholder="stark.com"
-                className="font-mono text-xs"
-              />
-            </div>
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <Button
-                size="xs"
-                variant="ghost"
-                onClick={() => setShowCreateModal(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="xs"
-                variant="primary"
-                disabled={!tenantName.trim()}
-                onClick={handleCreateTenantSubmit}
-              >
-                Create Tenant
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <CreateTenantModal
+        open={showCreateModal}
+        tenants={tenants}
+        idPrefix="dashboard"
+        onClose={() => setShowCreateModal(false)}
+        onCreateTenant={onCreateTenant}
+      />
 
       {/* Create Form for Active Tenant Modal */}
       {showCreateFormModal && activeTenant && (
@@ -841,97 +716,13 @@ export function TenantDashboardPanel({
       )}
 
       {/* Edit Tenant Details Modal */}
-      {editingTenant && (
-        <div
-          className="fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4"
-          onClick={() => setEditingTenant(null)}
-        >
-          <form
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="edit_tenant_modal_title"
-            className="w-full max-w-md rounded-lg border border-zinc-200 bg-white p-4 space-y-3 shadow-lg"
-            onClick={(e) => e.stopPropagation()}
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleUpdateTenantSubmit();
-            }}
-          >
-            <div className="flex items-center justify-between border-b border-zinc-200 pb-2">
-              <span
-                id="edit_tenant_modal_title"
-                className="font-mono text-xs uppercase text-zinc-700 font-semibold"
-              >
-                Edit Tenant Details
-              </span>
-              <Badge variant="neutral">{editingTenant.id}</Badge>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="dashboard_edit_tenant_name">
-                Organization Name
-              </Label>
-              <Input
-                id="dashboard_edit_tenant_name"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                placeholder="Acme Corp"
-                autoFocus
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="dashboard_edit_tenant_slug">Workspace Slug</Label>
-              <Input
-                id="dashboard_edit_tenant_slug"
-                value={editSlug}
-                onChange={(e) => setEditSlug(e.target.value)}
-                placeholder="acme-corp"
-                className="font-mono text-xs"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="dashboard_edit_tenant_domain">
-                Primary Domain
-              </Label>
-              <Input
-                id="dashboard_edit_tenant_domain"
-                value={editPrimaryDomain}
-                onChange={(e) => setEditPrimaryDomain(e.target.value)}
-                placeholder="acme.com"
-                className="font-mono text-xs"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="dashboard_edit_tenant_allowed_domains">
-                Allowed Domains (comma-separated)
-              </Label>
-              <Input
-                id="dashboard_edit_tenant_allowed_domains"
-                value={editAllowedDomains}
-                onChange={(e) => setEditAllowedDomains(e.target.value)}
-                placeholder="acme.com, portal.acme.com"
-                className="font-mono text-xs"
-              />
-            </div>
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <Button
-                size="xs"
-                variant="ghost"
-                onClick={() => setEditingTenant(null)}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                size="xs"
-                variant="primary"
-                disabled={!editName.trim() || !editPrimaryDomain.trim()}
-              >
-                Save Changes
-              </Button>
-            </div>
-          </form>
-        </div>
-      )}
+      <EditTenantModal
+        tenant={editingTenant}
+        tenants={tenants}
+        idPrefix="dashboard"
+        onClose={() => setEditingTenant(null)}
+        onUpdateTenant={onUpdateTenant}
+      />
     </main>
   );
 }
@@ -986,7 +777,6 @@ export function SubmissionsPanel({
     const headers = [
       'id',
       'submittedAt',
-      'sourceHost',
       ...dataFields.map((f) => f.id),
     ];
     const escapeCsv = (val: unknown): string => {
@@ -997,7 +787,6 @@ export function SubmissionsPanel({
     const rows = submissions.map((sub) => [
       escapeCsv(sub.id),
       escapeCsv(sub.submittedAt),
-      escapeCsv(sub.sourceHost ?? ''),
       ...dataFields.map((f) => escapeCsv(sub.values[f.id])),
     ]);
 
@@ -1030,7 +819,7 @@ export function SubmissionsPanel({
               </span>
               <span className="text-zinc-300">•</span>
               <span className="font-mono text-xs text-zinc-500">
-                Allowed: {tenant.allowedDomains.join(', ')}
+                /{tenant.slug}
               </span>
             </div>
             <p className="text-xs text-zinc-500">
@@ -1157,7 +946,7 @@ export function SubmissionsPanel({
                     </p>
                   </div>
                   <span className="font-mono text-xs text-zinc-500">
-                    {selectedRecord.sourceHost ?? tenant.primaryDomain}
+                    /{tenant.slug}
                   </span>
                 </div>
 
@@ -1202,6 +991,7 @@ export interface FormsDirectoryPanelProps {
   submissions: SubmissionRecord[];
   activeTenantId: string;
   activeFormId: string;
+  isSuperadmin?: boolean;
   tenantFilter?: string;
   onTenantFilterChange?: (tenantId: string) => void;
   isActionModalOpen?: boolean;
@@ -1218,6 +1008,7 @@ export function FormsDirectoryPanel({
   submissions,
   activeTenantId,
   activeFormId,
+  isSuperadmin = true,
   tenantFilter: controlledTenantFilter,
   onTenantFilterChange,
   isActionModalOpen = false,
@@ -1242,6 +1033,7 @@ export function FormsDirectoryPanel({
   };
 
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [copiedFormId, setCopiedFormId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
   const [newFormTenantId, setNewFormTenantId] =
     useState<string>(activeTenantId);
@@ -1374,7 +1166,7 @@ export function FormsDirectoryPanel({
     ...tenants.map((t) => ({
       value: t.id,
       label: t.name,
-      description: t.primaryDomain,
+      description: `/${t.slug}`,
       meta: String(forms.filter((f) => f.clientId === t.id).length),
     })),
   ];
@@ -1554,31 +1346,33 @@ export function FormsDirectoryPanel({
 
             {/* Filter & Sort Controls */}
             <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <FilterDropdown
-                ariaLabel="Filter forms by tenant"
-                prefix="Tenant"
-                menuHeading="Filter by Tenant"
-                value={tenantFilter}
-                options={tenantDropdownOptions}
-                onChange={handleTenantFilterSelect}
-                isActive={tenantFilter !== 'ALL'}
-                icon={
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    className="h-3.5 w-3.5"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M2.5 13.5h11M4 13.5V3.5l4-1.5 4 1.5v10M6.5 6h1M6.5 8.5h1M9 6h1M9 8.5h1"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                }
-              />
+              {isSuperadmin && (
+                <FilterDropdown
+                  ariaLabel="Filter forms by tenant"
+                  prefix="Tenant"
+                  menuHeading="Filter by Tenant"
+                  value={tenantFilter}
+                  options={tenantDropdownOptions}
+                  onChange={handleTenantFilterSelect}
+                  isActive={tenantFilter !== 'ALL'}
+                  icon={
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      className="h-3.5 w-3.5"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M2.5 13.5h11M4 13.5V3.5l4-1.5 4 1.5v10M6.5 6h1M6.5 8.5h1M9 6h1M9 8.5h1"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  }
+                />
+              )}
 
               <FilterDropdown
                 ariaLabel="Filter forms by form"
@@ -1785,7 +1579,7 @@ export function FormsDirectoryPanel({
                               {tenant?.name ?? form.clientId}
                             </span>
                             <span className="font-mono text-xs text-zinc-500">
-                              {tenant?.primaryDomain ?? '—'}
+                              {tenant ? `/${tenant.slug}` : '—'}
                             </span>
                           </div>
                         </td>
@@ -1835,6 +1629,27 @@ export function FormsDirectoryPanel({
                           onKeyDown={(e) => e.stopPropagation()}
                         >
                           <div className="inline-flex items-center justify-end gap-1.5">
+                            {tenant && (
+                              <Button
+                                size="xs"
+                                variant="secondary"
+                                onClick={() => {
+                                  const publicUrl = `${window.location.origin}/f/${tenant.slug}/${form.slug}`;
+                                  void navigator.clipboard
+                                    ?.writeText(publicUrl)
+                                    .then(() => {
+                                      setCopiedFormId(form.id);
+                                      window.setTimeout(
+                                        () => setCopiedFormId(null),
+                                        1800,
+                                      );
+                                    });
+                                }}
+                                title={`Copy public form URL: /f/${tenant.slug}/${form.slug}`}
+                              >
+                                {copiedFormId === form.id ? 'Copied' : 'Share'}
+                              </Button>
+                            )}
                             <Button
                               size="xs"
                               variant="secondary"
@@ -1976,21 +1791,23 @@ export function FormsDirectoryPanel({
               </span>
               <Badge variant="neutral">MULTI-TENANT</Badge>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="dir_new_form_tenant">Client Tenant</Label>
-              <Select
-                id="dir_new_form_tenant"
-                menuHeading="Select Client Tenant"
-                value={newFormTenantId}
-                onValueChange={setNewFormTenantId}
-                options={tenants.map((t) => ({
-                  value: t.id,
-                  label: t.name,
-                  description: t.primaryDomain,
-                  meta: `${forms.filter((f) => f.clientId === t.id).length}f`,
-                }))}
-              />
-            </div>
+            {isSuperadmin && (
+              <div className="space-y-1.5">
+                <Label htmlFor="dir_new_form_tenant">Client Tenant</Label>
+                <Select
+                  id="dir_new_form_tenant"
+                  menuHeading="Select Client Tenant"
+                  value={newFormTenantId}
+                  onValueChange={setNewFormTenantId}
+                  options={tenants.map((t) => ({
+                    value: t.id,
+                    label: t.name,
+                    description: `/${t.slug}`,
+                    meta: `${forms.filter((f) => f.clientId === t.id).length}f`,
+                  }))}
+                />
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="dir_new_form_title">Form Title</Label>
               <Input

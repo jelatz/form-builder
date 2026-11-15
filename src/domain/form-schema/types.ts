@@ -153,8 +153,7 @@ export interface ClientTenant {
   id: string;
   name: string;
   slug: string;
-  primaryDomain: string;
-  allowedDomains: string[];
+  status?: 'active' | 'suspended';
   createdAt: string;
 }
 
@@ -165,6 +164,7 @@ export interface FormSchema {
   title: string;
   description?: string;
   submitButtonText?: string;
+  isPublished?: boolean;
   fields: FormField[];
   updatedAt: string;
 }
@@ -175,7 +175,6 @@ export interface SubmissionRecord {
   clientId: string;
   values: Record<string, unknown>;
   submittedAt: string;
-  sourceHost?: string;
 }
 
 /**

@@ -476,6 +476,8 @@ export function parseFormSchemaJson(
       typeof obj.description === 'string' ? obj.description : undefined,
     submitButtonText:
       typeof obj.submitButtonText === 'string' ? obj.submitButtonText : 'Submit',
+    isPublished:
+      typeof obj.isPublished === 'boolean' ? obj.isPublished : true,
     fields: validatedFields,
     updatedAt:
       typeof obj.updatedAt === 'string'
