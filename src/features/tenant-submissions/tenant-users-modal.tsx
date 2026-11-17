@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { ClientTenant } from '../../domain/form-schema';
+import { EMAIL_PATTERN } from '../../shared/lib';
 import {
   Badge,
   Button,
@@ -8,7 +9,11 @@ import {
   Select,
   type DropdownOption,
 } from '../../shared/ui';
-import type { ManagedTenantUser } from './storage';
+import type {
+  ManagedTenantUser,
+  ResetUserCredentialsResponse,
+} from './storage';
+import { validateEditTenantUserInput } from './tenant-utils';
 
 export interface TenantUsersModalProps {
   tenant: ClientTenant;
@@ -24,12 +29,21 @@ export interface TenantUsersModalProps {
   onUpdateUser: (
     userId: string,
     input: {
+      username?: string;
+      displayName?: string;
       role?: 'tenant_admin' | 'tenant_member';
       isActive?: boolean;
       password?: string;
     },
   ) => Promise<void>;
   onDeleteUser: (userId: string) => Promise<void>;
+  onResetCredentials?: (
+    userId: string,
+    input: {
+      password?: string;
+      email?: string;
+    },
+  ) => Promise<ResetUserCredentialsResponse>;
 }
 
 const ROLE_OPTIONS: DropdownOption[] = [
@@ -54,6 +68,7 @@ export function TenantUsersModal({
   onCreateUser,
   onUpdateUser,
   onDeleteUser,
+  onResetCredentials,
 }: TenantUsersModalProps) {
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -63,9 +78,25 @@ export function TenantUsersModal({
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copiedLoginUrl, setCopiedLoginUrl] = useState(false);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [editUsername, setEditUsername] = useState('');
+  const [editDisplayName, setEditDisplayName] = useState('');
+  const [editRole, setEditRole] = useState<'tenant_admin' | 'tenant_member'>(
+    'tenant_admin',
+  );
   const [resetUserId, setResetUserId] = useState<string | null>(null);
   const [resetPasswordDraft, setResetPasswordDraft] = useState('');
+  const [resetEmailDraft, setResetEmailDraft] = useState('');
+  const [issuedCredentials, setIssuedCredentials] = useState<{
+    username: string;
+    generatedPassword?: string;
+    email?: string;
+    emailDelivery?: ResetUserCredentialsResponse['emailDelivery'];
+  } | null>(null);
+  const [copiedCredential, setCopiedCredential] = useState(false);
+  const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<string | null>(
+    null,
+  );
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -81,20 +112,6 @@ export function TenantUsersModal({
   }, [onClose]);
 
   const tenantUsers = users.filter((u) => u.clientId === tenant.id);
-  const loginUrl =
-    typeof window !== 'undefined'
-      ? `${window.location.origin}/t/${tenant.slug}/login`
-      : `/t/${tenant.slug}/login`;
-
-  const handleCopyLoginUrl = async () => {
-    try {
-      await navigator.clipboard.writeText(loginUrl);
-      setCopiedLoginUrl(true);
-      window.setTimeout(() => setCopiedLoginUrl(false), 1800);
-    } catch {
-      // Ignore clipboard failures
-    }
-  };
 
   const handleCreateSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -134,23 +151,99 @@ export function TenantUsersModal({
     }
   };
 
-  const handleResetPassword = async (userId: string) => {
-    if (resetPasswordDraft.length < 8) {
-      setError('New password must be at least 8 characters.');
+  const startEditingUser = (user: ManagedTenantUser) => {
+    setError(null);
+    setResetUserId(null);
+    setConfirmDeleteUserId(null);
+    if (editingUserId === user.id) {
+      setEditingUserId(null);
       return;
     }
+    setEditingUserId(user.id);
+    setEditUsername(user.username);
+    setEditDisplayName(user.displayName);
+    setEditRole(user.role === 'tenant_member' ? 'tenant_member' : 'tenant_admin');
+  };
+
+  const handleSaveUserEdit = async (userId: string) => {
+    const validation = validateEditTenantUserInput({
+      username: editUsername,
+      displayName: editDisplayName,
+      role: editRole,
+    });
+    if (!validation.ok) {
+      setError(validation.error);
+      return;
+    }
+
     setBusyUserId(userId);
     setError(null);
     try {
-      await onUpdateUser(userId, { password: resetPasswordDraft });
-      setResetUserId(null);
-      setResetPasswordDraft('');
+      await onUpdateUser(userId, validation.data);
+      setEditingUserId(null);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : 'Failed to reset password.',
+        err instanceof Error ? err.message : 'Failed to update user profile.',
       );
     } finally {
       setBusyUserId(null);
+    }
+  };
+
+  const handleResetPassword = async (user: ManagedTenantUser) => {
+    const trimmedEmail = resetEmailDraft.trim().toLowerCase();
+    if (resetPasswordDraft !== '' && resetPasswordDraft.length < 8) {
+      setError('New password must be at least 8 characters.');
+      return;
+    }
+    if (trimmedEmail !== '' && !EMAIL_PATTERN.test(trimmedEmail)) {
+      setError('Please enter a valid email address.');
+      return;
+    }
+    if (!onResetCredentials && resetPasswordDraft.length < 8) {
+      setError('New password must be at least 8 characters.');
+      return;
+    }
+
+    setBusyUserId(user.id);
+    setError(null);
+    setCopiedCredential(false);
+    try {
+      if (onResetCredentials) {
+        const result = await onResetCredentials(user.id, {
+          ...(resetPasswordDraft ? { password: resetPasswordDraft } : {}),
+          ...(trimmedEmail ? { email: trimmedEmail } : {}),
+        });
+        setIssuedCredentials({
+          username: result.user.username,
+          generatedPassword: result.generatedPassword,
+          email: trimmedEmail || undefined,
+          emailDelivery: result.emailDelivery,
+        });
+      } else {
+        await onUpdateUser(user.id, { password: resetPasswordDraft });
+        setIssuedCredentials({
+          username: user.username,
+        });
+      }
+      setResetUserId(null);
+      setResetPasswordDraft('');
+      setResetEmailDraft('');
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Failed to reset credentials.',
+      );
+    } finally {
+      setBusyUserId(null);
+    }
+  };
+
+  const handleCopyGeneratedPassword = async (value: string) => {
+    try {
+      await navigator.clipboard?.writeText(value);
+      setCopiedCredential(true);
+    } catch {
+      setError('Unable to copy password to clipboard.');
     }
   };
 
@@ -180,17 +273,12 @@ export function TenantUsersModal({
       >
         <div className="px-5 py-3.5 border-b border-zinc-200 flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <Badge variant="neutral">TENANT LOGINS</Badge>
-              <span className="font-mono text-xs text-zinc-500">
-                /{tenant.slug}
-              </span>
-            </div>
+            <Badge variant="neutral">TEAM ACCESS</Badge>
             <h2
               id="tenant-users-modal-title"
               className="text-sm font-semibold text-zinc-900 mt-1 truncate"
             >
-              {tenant.name} — User Credentials
+              {tenant.name} — Team Users
             </h2>
           </div>
           <Button size="xs" variant="secondary" onClick={onClose}>
@@ -199,26 +287,6 @@ export function TenantUsersModal({
         </div>
 
         <div className="p-5 overflow-y-auto space-y-5">
-          {/* Dedicated Tenant Login URL */}
-          <div className="p-3 rounded-md border border-zinc-200 bg-zinc-50 flex flex-wrap items-center justify-between gap-2">
-            <div className="min-w-0">
-              <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                Dedicated Tenant Login URL
-              </div>
-              <div className="font-mono text-xs text-zinc-800 truncate">
-                {loginUrl}
-              </div>
-            </div>
-            <Button
-              type="button"
-              size="xs"
-              variant="secondary"
-              onClick={() => void handleCopyLoginUrl()}
-            >
-              {copiedLoginUrl ? 'Copied!' : 'Copy Login URL'}
-            </Button>
-          </div>
-
           {error && (
             <div
               role="alert"
@@ -228,23 +296,68 @@ export function TenantUsersModal({
             </div>
           )}
 
+          {issuedCredentials && (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50/80 px-3.5 py-2.5 text-xs text-emerald-950 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold">
+                  Credentials updated for @{issuedCredentials.username}
+                </span>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => setIssuedCredentials(null)}
+                >
+                  Dismiss
+                </Button>
+              </div>
+              {issuedCredentials.generatedPassword && (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-emerald-200 bg-white px-2.5 py-1.5">
+                  <div className="font-mono text-xs text-zinc-900">
+                    <span className="text-zinc-500 mr-2">Password:</span>
+                    <span>{issuedCredentials.generatedPassword}</span>
+                  </div>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="secondary"
+                    onClick={() =>
+                      void handleCopyGeneratedPassword(
+                        issuedCredentials.generatedPassword!,
+                      )
+                    }
+                  >
+                    {copiedCredential ? 'Copied' : 'Copy'}
+                  </Button>
+                </div>
+              )}
+              {issuedCredentials.emailDelivery && (
+                <p className="text-[11px] text-emerald-800">
+                  {issuedCredentials.emailDelivery.status === 'sent'
+                    ? `Emailed login credentials to ${issuedCredentials.email ?? 'recipient'} via ${issuedCredentials.emailDelivery.provider}.`
+                    : `Logged login credentials for ${issuedCredentials.email ?? 'recipient'} to dev console.`}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Existing Tenant Users */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="font-mono text-xs uppercase tracking-wider text-zinc-600 font-semibold">
-                Provisioned Accounts ({tenantUsers.length})
+                Team Accounts ({tenantUsers.length})
               </span>
             </div>
 
             {tenantUsers.length === 0 ? (
               <div className="p-6 rounded-md border border-dashed border-zinc-300 bg-zinc-50/50 text-center text-xs text-zinc-500">
-                No tenant logins provisioned yet for {tenant.name}. Create one
-                below.
+                No team members added yet for {tenant.name}. Add one below.
               </div>
             ) : (
               <div className="rounded-md border border-zinc-200 divide-y divide-zinc-100 overflow-hidden">
                 {tenantUsers.map((user) => {
                   const isBusy = busyUserId === user.id;
+                  const isConfirmingDelete = confirmDeleteUserId === user.id;
                   return (
                     <div key={user.id} className="p-3 bg-white space-y-2">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -256,7 +369,9 @@ export function TenantUsersModal({
                             <span className="font-mono text-xs text-zinc-500">
                               @{user.username}
                             </span>
-                            <Badge variant="neutral">{user.role}</Badge>
+                            <Badge variant="neutral">
+                              {user.role === 'tenant_admin' ? 'Admin' : 'Member'}
+                            </Badge>
                             <Badge
                               variant={user.isActive ? 'success' : 'danger'}
                             >
@@ -265,20 +380,32 @@ export function TenantUsersModal({
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Button
+                            type="button"
+                            size="xs"
+                            variant="secondary"
+                            disabled={isBusy}
+                            onClick={() => startEditingUser(user)}
+                          >
+                            {editingUserId === user.id ? 'Close Edit' : 'Edit'}
+                          </Button>
                           <Button
                             type="button"
                             size="xs"
                             variant="secondary"
                             disabled={isBusy}
                             onClick={() => {
+                              setEditingUserId(null);
+                              setConfirmDeleteUserId(null);
                               setResetUserId(
                                 resetUserId === user.id ? null : user.id,
                               );
                               setResetPasswordDraft('');
+                              setResetEmailDraft('');
                             }}
                           >
-                            Reset Password
+                            Reset Credentials
                           </Button>
                           <Button
                             type="button"
@@ -289,39 +416,195 @@ export function TenantUsersModal({
                           >
                             {user.isActive ? 'Disable' : 'Enable'}
                           </Button>
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="danger"
-                            disabled={isBusy}
-                            onClick={() => void handleDelete(user.id)}
-                          >
-                            Delete
-                          </Button>
+                          {isConfirmingDelete ? (
+                            <>
+                              <Button
+                                type="button"
+                                size="xs"
+                                variant="ghost"
+                                disabled={isBusy}
+                                onClick={() => setConfirmDeleteUserId(null)}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                type="button"
+                                size="xs"
+                                variant="danger"
+                                disabled={isBusy}
+                                onClick={() => {
+                                  setConfirmDeleteUserId(null);
+                                  void handleDelete(user.id);
+                                }}
+                              >
+                                Confirm
+                              </Button>
+                            </>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="danger"
+                              disabled={isBusy}
+                              onClick={() => setConfirmDeleteUserId(user.id)}
+                            >
+                              Delete
+                            </Button>
+                          )}
                         </div>
                       </div>
 
+                      {editingUserId === user.id && (
+                        <div className="rounded-md border border-zinc-200 bg-zinc-50/70 p-3 space-y-2.5">
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                            <div className="space-y-1">
+                              <Label htmlFor={`edit-user-username-${user.id}`}>
+                                Username
+                              </Label>
+                              <Input
+                                id={`edit-user-username-${user.id}`}
+                                value={editUsername}
+                                onChange={(e) => {
+                                  setError(null);
+                                  setEditUsername(e.target.value);
+                                }}
+                                disabled={isBusy}
+                                className="h-8 text-xs font-mono"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor={`edit-user-display-${user.id}`}>
+                                Display Name
+                              </Label>
+                              <Input
+                                id={`edit-user-display-${user.id}`}
+                                value={editDisplayName}
+                                onChange={(e) => {
+                                  setError(null);
+                                  setEditDisplayName(e.target.value);
+                                }}
+                                disabled={isBusy}
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor={`edit-user-role-${user.id}`}>
+                                Role
+                              </Label>
+                              <Select
+                                id={`edit-user-role-${user.id}`}
+                                aria-label={`Role for ${user.username}`}
+                                value={editRole}
+                                options={ROLE_OPTIONS}
+                                onValueChange={(next) => {
+                                  setError(null);
+                                  setEditRole(
+                                    next as 'tenant_admin' | 'tenant_member',
+                                  );
+                                }}
+                                disabled={isBusy}
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="ghost"
+                              disabled={isBusy}
+                              onClick={() => setEditingUserId(null)}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="primary"
+                              disabled={isBusy}
+                              onClick={() => void handleSaveUserEdit(user.id)}
+                            >
+                              Save Profile
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
                       {resetUserId === user.id && (
-                        <div className="flex items-center gap-2 pt-1">
-                          <Input
-                            type="password"
-                            aria-label={`New password for ${user.username}`}
-                            placeholder="New password (min 8 chars)"
-                            value={resetPasswordDraft}
-                            onChange={(e) =>
-                              setResetPasswordDraft(e.target.value)
-                            }
-                            className="h-8 text-xs flex-1"
-                          />
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="primary"
-                            disabled={isBusy}
-                            onClick={() => void handleResetPassword(user.id)}
-                          >
-                            Save Password
-                          </Button>
+                        <div className="rounded-md border border-zinc-200 bg-zinc-50/70 p-3 space-y-2.5">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            <div className="space-y-1">
+                              <Label htmlFor={`reset-pw-${user.id}`}>
+                                New Password{' '}
+                                {onResetCredentials
+                                  ? '(leave blank to auto-generate)'
+                                  : '(min 8 chars)'}
+                              </Label>
+                              <Input
+                                id={`reset-pw-${user.id}`}
+                                type="password"
+                                aria-label={`New password for ${user.username}`}
+                                placeholder={
+                                  onResetCredentials
+                                    ? 'Blank = generate 16-char password'
+                                    : 'New password (min 8 chars)'
+                                }
+                                value={resetPasswordDraft}
+                                onChange={(e) => {
+                                  setError(null);
+                                  setResetPasswordDraft(e.target.value);
+                                }}
+                                disabled={isBusy}
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                            {onResetCredentials && (
+                              <div className="space-y-1">
+                                <Label htmlFor={`reset-email-${user.id}`}>
+                                  Email Credentials To (optional)
+                                </Label>
+                                <Input
+                                  id={`reset-email-${user.id}`}
+                                  type="email"
+                                  aria-label={`Email credentials for ${user.username}`}
+                                  placeholder="admin@company.com"
+                                  value={resetEmailDraft}
+                                  onChange={(e) => {
+                                    setError(null);
+                                    setResetEmailDraft(e.target.value);
+                                  }}
+                                  disabled={isBusy}
+                                  className="h-8 text-xs"
+                                />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center justify-end gap-2">
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="ghost"
+                              disabled={isBusy}
+                              onClick={() => {
+                                setResetUserId(null);
+                                setResetPasswordDraft('');
+                                setResetEmailDraft('');
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="primary"
+                              disabled={isBusy}
+                              onClick={() => void handleResetPassword(user)}
+                            >
+                              {resetPasswordDraft
+                                ? 'Save Password'
+                                : 'Generate & Reset'}
+                            </Button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -337,7 +620,7 @@ export function TenantUsersModal({
             className="p-4 rounded-md border border-zinc-200 bg-zinc-50/70 space-y-3"
           >
             <div className="font-mono text-xs uppercase tracking-wider text-zinc-600 font-semibold">
-              + Provision New Tenant Login
+              + Add Team Member
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -394,7 +677,7 @@ export function TenantUsersModal({
 
             <div className="flex justify-end pt-1">
               <Button type="submit" size="sm" variant="primary" disabled={isSubmitting}>
-                {isSubmitting ? 'Creating Login...' : 'Create Tenant Login'}
+                {isSubmitting ? 'Adding...' : 'Add Member'}
               </Button>
             </div>
           </form>
