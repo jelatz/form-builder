@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type {
   ClientTenant,
   FormSchema,
@@ -285,6 +285,26 @@ export class NeonDrizzleStore implements AppStore {
       .update(sessions)
       .set({ revokedAt: nowIso })
       .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
+  }
+
+  async revokeTenantSessions(clientId: string, nowIso: string): Promise<void> {
+    const tenantUsers = this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.clientId, clientId));
+
+    await this.db
+      .update(sessions)
+      .set({ revokedAt: nowIso })
+      .where(
+        and(
+          isNull(sessions.revokedAt),
+          or(
+            eq(sessions.clientId, clientId),
+            inArray(sessions.userId, tenantUsers),
+          ),
+        ),
+      );
   }
 
   async listForms(query?: ListFormsQuery): Promise<FormSchema[]> {

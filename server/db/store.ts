@@ -46,6 +46,7 @@ export interface AppStore {
   ): Promise<AuthContext | null>;
   revokeSession(sessionIdHash: string, nowIso: string): Promise<void>;
   revokeUserSessions(userId: string, nowIso: string): Promise<void>;
+  revokeTenantSessions(clientId: string, nowIso: string): Promise<void>;
 
   // Forms
   listForms(query?: ListFormsQuery): Promise<FormSchema[]>;

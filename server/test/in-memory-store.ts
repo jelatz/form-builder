@@ -206,6 +206,9 @@ export class InMemoryAppStore implements AppStore {
     const tenant = user.clientId
       ? (this.clients.get(user.clientId) ?? null)
       : null;
+    if (tenant && tenant.status === 'suspended') {
+      return null;
+    }
     return {
       sessionId: session.id,
       user: toPublicUser(user),
@@ -223,6 +226,16 @@ export class InMemoryAppStore implements AppStore {
   async revokeUserSessions(userId: string, nowIso: string): Promise<void> {
     for (const [sid, session] of this.sessions.entries()) {
       if (session.userId === userId && session.revokedAt === null) {
+        this.sessions.set(sid, { ...session, revokedAt: nowIso });
+      }
+    }
+  }
+
+  async revokeTenantSessions(clientId: string, nowIso: string): Promise<void> {
+    for (const [sid, session] of this.sessions.entries()) {
+      if (session.revokedAt !== null) continue;
+      const user = this.users.get(session.userId);
+      if (session.clientId === clientId || user?.clientId === clientId) {
         this.sessions.set(sid, { ...session, revokedAt: nowIso });
       }
     }

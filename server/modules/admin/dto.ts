@@ -1,6 +1,14 @@
+import {
+  EMAIL_PATTERN,
+  USERNAME_PATTERN,
+} from '../../../src/shared/lib/username.ts';
+import { slugify } from '../../lib/slug.ts';
+
 export interface CreateTenantDto {
   name: string;
   slug?: string;
+  email: string;
+  adminUsername?: string;
 }
 
 export interface UpdateTenantDto {
@@ -28,8 +36,6 @@ export type ValidationResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string; fieldErrors?: Record<string, string> };
 
-const USERNAME_PATTERN = /^[a-zA-Z0-9_.-]{3,32}$/;
-
 export function validateCreateTenantDto(
   raw: unknown,
 ): ValidationResult<CreateTenantDto> {
@@ -39,16 +45,33 @@ export function validateCreateTenantDto(
   const body = raw as Record<string, unknown>;
   const name = typeof body.name === 'string' ? body.name.trim() : '';
   const slug = typeof body.slug === 'string' ? body.slug.trim() : undefined;
+  const email =
+    typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const rawAdminUsername =
+    typeof body.adminUsername === 'string' ? body.adminUsername.trim() : '';
+  const adminUsername = rawAdminUsername || undefined;
+
+  const fieldErrors: Record<string, string> = {};
 
   if (name.length < 2) {
-    return {
-      ok: false,
-      error: 'Tenant name must be at least 2 characters.',
-      fieldErrors: { name: 'Tenant name must be at least 2 characters.' },
-    };
+    fieldErrors.name = 'Tenant name must be at least 2 characters.';
+  }
+  if (!EMAIL_PATTERN.test(email)) {
+    fieldErrors.email = 'A valid admin email address is required.';
+  }
+  if (adminUsername !== undefined && !USERNAME_PATTERN.test(adminUsername)) {
+    fieldErrors.adminUsername =
+      'Admin username must be 3–32 characters (letters, numbers, _, ., or -).';
   }
 
-  return { ok: true, data: { name, slug } };
+  const firstError =
+    fieldErrors.name ?? fieldErrors.email ?? fieldErrors.adminUsername;
+
+  if (firstError) {
+    return { ok: false, error: firstError, fieldErrors };
+  }
+
+  return { ok: true, data: { name, slug, email, adminUsername } };
 }
 
 export function validateUpdateTenantDto(
@@ -72,14 +95,24 @@ export function validateUpdateTenantDto(
   }
 
   if (body.slug !== undefined) {
-    if (typeof body.slug !== 'string' || !body.slug.trim()) {
+    if (typeof body.slug !== 'string') {
       return {
         ok: false,
         error: 'Tenant slug must be a non-empty string.',
         fieldErrors: { slug: 'Tenant slug must be a non-empty string.' },
       };
     }
-    data.slug = body.slug.trim();
+    const normalizedSlug = slugify(body.slug, '');
+    if (!normalizedSlug) {
+      return {
+        ok: false,
+        error: 'Tenant slug must contain at least one letter or number.',
+        fieldErrors: {
+          slug: 'Tenant slug must contain at least one letter or number.',
+        },
+      };
+    }
+    data.slug = normalizedSlug;
   }
 
   if (body.status !== undefined) {
@@ -91,6 +124,17 @@ export function validateUpdateTenantDto(
       };
     }
     data.status = body.status;
+  }
+
+  if (
+    data.name === undefined &&
+    data.slug === undefined &&
+    data.status === undefined
+  ) {
+    return {
+      ok: false,
+      error: 'At least one tenant field (name, slug, or status) must be provided.',
+    };
   }
 
   return { ok: true, data };
