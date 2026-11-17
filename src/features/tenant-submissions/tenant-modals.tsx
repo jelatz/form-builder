@@ -15,7 +15,6 @@ import {
 } from '../../shared/ui';
 import {
   ensureUniqueTenantSlug,
-  sanitizeTenantSlug,
   validateEditTenantInput,
 } from './tenant-utils';
 
@@ -324,7 +323,6 @@ function EditTenantModalForm({
   onManageUsers,
 }: EditTenantModalFormProps) {
   const [editName, setEditName] = useState(tenant.name);
-  const [editSlug, setEditSlug] = useState(tenant.slug);
   const [editStatus, setEditStatus] = useState<'active' | 'suspended'>(
     tenant.status ?? 'active',
   );
@@ -344,12 +342,10 @@ function EditTenantModalForm({
     };
   }, [isSubmitting, onClose]);
 
-  const previewSlug = sanitizeTenantSlug(editSlug) || tenant.slug;
-
   const handleSubmit = async () => {
     if (isSubmitting) return;
     const validation = validateEditTenantInput(
-      { name: editName, slug: editSlug, status: editStatus },
+      { name: editName, slug: tenant.slug, status: editStatus },
       tenants,
       tenant.id,
     );
@@ -374,7 +370,6 @@ function EditTenantModalForm({
 
   const titleId = `${idPrefix}_edit_tenant_modal_title`;
   const nameId = `${idPrefix}_edit_tenant_name`;
-  const slugId = `${idPrefix}_edit_tenant_slug`;
   const statusId = `${idPrefix}_edit_tenant_status`;
 
   return (
@@ -434,31 +429,6 @@ function EditTenantModalForm({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor={slugId} requiredIndicator>
-            Workspace URL Slug
-          </Label>
-          <Input
-            id={slugId}
-            value={editSlug}
-            onChange={(e) => {
-              setSubmitError(null);
-              setEditSlug(e.target.value);
-            }}
-            placeholder="acme-corp"
-            disabled={isSubmitting}
-            className="font-mono text-xs"
-          />
-          <div className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 font-mono text-[11px] text-zinc-500 space-y-0.5">
-            <div className="truncate">
-              Login: <span className="text-zinc-800">/t/{previewSlug}/login</span>
-            </div>
-            <div className="truncate">
-              Forms: <span className="text-zinc-800">/f/{previewSlug}/&lt;form-slug&gt;</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
           <Label htmlFor={statusId}>Workspace Status</Label>
           <Select
             id={statusId}
@@ -509,7 +479,7 @@ function EditTenantModalForm({
               type="submit"
               size="xs"
               variant="primary"
-              disabled={isSubmitting || !editName.trim() || !editSlug.trim()}
+              disabled={isSubmitting || !editName.trim()}
             >
               {isSubmitting ? 'Saving...' : 'Save Changes'}
             </Button>

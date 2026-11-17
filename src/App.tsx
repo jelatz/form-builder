@@ -68,7 +68,7 @@ import {
   type ThemeMode,
   type WorkspaceMode,
 } from './shared/lib';
-import { Badge, Button, Input, Label, PageContainer, Select, Skeleton } from './shared/ui';
+import { Badge, Button, Input, Label, PageContainer, Select, Skeleton, Tooltip } from './shared/ui';
 
 const BuilderCanvas = lazy(() =>
   import('./features/builder-canvas').then((m) => ({
@@ -1070,27 +1070,6 @@ export default function App() {
     navigateWorkspace('form_detail', form.id);
   };
 
-  const handleViewFormFromDirectory = (form: FormSchema) => {
-    setActiveTenantId(form.clientId);
-    setActiveFormId(form.id);
-    setSelectedFieldId(form.fields[0]?.id ?? null);
-    navigateWorkspace('preview', form.id);
-  };
-
-  const handleEditFormFromDirectory = (form: FormSchema) => {
-    setActiveTenantId(form.clientId);
-    setActiveFormId(form.id);
-    setSelectedFieldId(form.fields[0]?.id ?? null);
-    navigateWorkspace('edit', form.id);
-  };
-
-  const handleViewFormSubmissions = (form: FormSchema) => {
-    setActiveTenantId(form.clientId);
-    setActiveFormId(form.id);
-    setSelectedFieldId(form.fields[0]?.id ?? null);
-    navigateWorkspace('submissions', form.id);
-  };
-
   const handleDeleteForm = (formId: string) => {
     const targetForm = forms.find((f) => f.id === formId);
     if (!targetForm) return;
@@ -1560,77 +1539,20 @@ export default function App() {
             )}
 
             {/* Mode 0: Dashboard */}
-            <button
-              type="button"
-              onClick={() => navigateWorkspace('dashboard')}
-              title={
-                userIsSuperadmin
-                  ? `Dashboard (${tenants.length} tenants)`
-                  : 'Dashboard'
-              }
-              aria-label="Dashboard"
-              className={
-                isSidebarMinimized
-                  ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
-                      activeMode === 'dashboard'
-                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
-                    }`
-                  : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
-                      activeMode === 'dashboard'
-                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
-                    }`
-              }
-            >
-              <svg
-                className="w-4 h-4 shrink-0"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect width="7" height="9" x="3" y="3" rx="1" />
-                <rect width="7" height="5" x="14" y="3" rx="1" />
-                <rect width="7" height="9" x="14" y="12" rx="1" />
-                <rect width="7" height="5" x="3" y="16" rx="1" />
-              </svg>
-              {!isSidebarMinimized && (
-                <>
-                  <span className="truncate">Dashboard</span>
-                  {userIsSuperadmin && (
-                    <span
-                      className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${
-                        activeMode === 'dashboard'
-                          ? 'bg-zinc-700 text-zinc-100 dark:bg-zinc-200 dark:text-zinc-900'
-                          : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
-                      }`}
-                    >
-                      {tenants.length}
-                    </span>
-                  )}
-                </>
-              )}
-            </button>
-
-            {/* Mode 1: All Tenants (Superadmin only) */}
-            {userIsSuperadmin && (
+            <Tooltip content={userIsSuperadmin ? `Dashboard · ${tenants.length} tenants` : 'Dashboard'} side="right" disabled={!isSidebarMinimized} className="flex w-full">
               <button
                 type="button"
-                onClick={() => navigateWorkspace('tenants')}
-                title={`All Tenants (${tenants.length})`}
-                aria-label="All Tenants"
+                onClick={() => navigateWorkspace('dashboard')}
+                aria-label="Dashboard"
                 className={
                   isSidebarMinimized
                     ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
-                        activeMode === 'tenants'
+                        activeMode === 'dashboard'
                           ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
                           : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
                       }`
                     : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
-                        activeMode === 'tenants'
+                        activeMode === 'dashboard'
                           ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
                           : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
                       }`
@@ -1645,170 +1567,228 @@ export default function App() {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
-                  <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
-                  <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
-                  <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" />
-                  <path d="M10 6h4" />
-                  <path d="M10 10h4" />
-                  <path d="M10 14h4" />
-                  <path d="M10 18h4" />
+                  <rect width="7" height="9" x="3" y="3" rx="1" />
+                  <rect width="7" height="5" x="14" y="3" rx="1" />
+                  <rect width="7" height="9" x="14" y="12" rx="1" />
+                  <rect width="7" height="5" x="3" y="16" rx="1" />
                 </svg>
                 {!isSidebarMinimized && (
                   <>
-                    <span className="truncate">All Tenants</span>
+                    <span className="truncate">Dashboard</span>
+                    {userIsSuperadmin && (
+                      <span
+                        className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${
+                          activeMode === 'dashboard'
+                            ? 'bg-zinc-700 text-zinc-100 dark:bg-zinc-200 dark:text-zinc-900'
+                            : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                        }`}
+                      >
+                        {tenants.length}
+                      </span>
+                    )}
+                  </>
+                )}
+              </button>
+            </Tooltip>
+
+            {/* Mode 1: All Tenants (Superadmin only) */}
+            {userIsSuperadmin && (
+              <Tooltip content={`All Tenants · ${tenants.length}`} side="right" disabled={!isSidebarMinimized} className="flex w-full">
+                <button
+                  type="button"
+                  onClick={() => navigateWorkspace('tenants')}
+                  aria-label="All Tenants"
+                  className={
+                    isSidebarMinimized
+                      ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
+                          activeMode === 'tenants'
+                            ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                            : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
+                        }`
+                      : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
+                          activeMode === 'tenants'
+                            ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                            : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
+                        }`
+                  }
+                >
+                  <svg
+                    className="w-4 h-4 shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
+                    <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
+                    <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" />
+                    <path d="M10 6h4" />
+                    <path d="M10 10h4" />
+                    <path d="M10 14h4" />
+                    <path d="M10 18h4" />
+                  </svg>
+                  {!isSidebarMinimized && (
+                    <>
+                      <span className="truncate">All Tenants</span>
+                      <span
+                        className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${
+                          activeMode === 'tenants'
+                            ? 'bg-zinc-700 text-zinc-100 dark:bg-zinc-200 dark:text-zinc-900'
+                            : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                        }`}
+                      >
+                        {tenants.length}
+                      </span>
+                    </>
+                  )}
+                </button>
+              </Tooltip>
+            )}
+
+            {/* Mode 2: All Forms */}
+            <Tooltip content={`${userIsSuperadmin ? 'All Forms' : 'Forms'} · ${forms.length}`} side="right" disabled={!isSidebarMinimized} className="flex w-full">
+              <button
+                type="button"
+                onClick={() => {
+                  setFormsTenantFilter(userIsSuperadmin ? 'ALL' : activeTenant.id);
+                  navigateWorkspace('forms');
+                }}
+                aria-label={userIsSuperadmin ? 'All Forms' : 'Forms'}
+                className={
+                  isSidebarMinimized
+                    ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
+                        activeMode === 'forms' || activeMode === 'form_detail'
+                          ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                          : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
+                      }`
+                    : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
+                        activeMode === 'forms' || activeMode === 'form_detail'
+                          ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                          : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
+                      }`
+                }
+              >
+                <svg
+                  className="w-4 h-4 shrink-0"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="3" y="3" width="7" height="7" />
+                  <rect x="14" y="3" width="7" height="7" />
+                  <rect x="14" y="14" width="7" height="7" />
+                  <rect x="3" y="14" width="7" height="7" />
+                </svg>
+                {!isSidebarMinimized && (
+                  <>
+                    <span className="truncate">
+                      {userIsSuperadmin ? 'All Forms' : 'Forms'}
+                    </span>
                     <span
                       className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${
-                        activeMode === 'tenants'
+                        activeMode === 'forms' || activeMode === 'form_detail'
                           ? 'bg-zinc-700 text-zinc-100 dark:bg-zinc-200 dark:text-zinc-900'
                           : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
                       }`}
                     >
-                      {tenants.length}
+                      {forms.length}
                     </span>
                   </>
                 )}
               </button>
-            )}
-
-            {/* Mode 2: All Forms */}
-            <button
-              type="button"
-              onClick={() => {
-                setFormsTenantFilter(userIsSuperadmin ? 'ALL' : activeTenant.id);
-                navigateWorkspace('forms');
-              }}
-              title={`${userIsSuperadmin ? 'All Forms' : 'Forms'} (${forms.length})`}
-              aria-label={userIsSuperadmin ? 'All Forms' : 'Forms'}
-              className={
-                isSidebarMinimized
-                  ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
-                      activeMode === 'forms' || activeMode === 'form_detail'
-                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
-                    }`
-                  : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
-                      activeMode === 'forms' || activeMode === 'form_detail'
-                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
-                    }`
-              }
-            >
-              <svg
-                className="w-4 h-4 shrink-0"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="3" y="3" width="7" height="7" />
-                <rect x="14" y="3" width="7" height="7" />
-                <rect x="14" y="14" width="7" height="7" />
-                <rect x="3" y="14" width="7" height="7" />
-              </svg>
-              {!isSidebarMinimized && (
-                <>
-                  <span className="truncate">
-                    {userIsSuperadmin ? 'All Forms' : 'Forms'}
-                  </span>
-                  <span
-                    className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${
-                      activeMode === 'forms' || activeMode === 'form_detail'
-                        ? 'bg-zinc-700 text-zinc-100 dark:bg-zinc-200 dark:text-zinc-900'
-                        : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
-                    }`}
-                  >
-                    {forms.length}
-                  </span>
-                </>
-              )}
-            </button>
+            </Tooltip>
 
             {/* Mode 3: Submissions Explorer */}
-            <button
-              type="button"
-              onClick={() => navigateWorkspace('submissions_explorer')}
-              title={`Submissions (${submissions.length})`}
-              aria-label="Submissions"
-              className={
-                isSidebarMinimized
-                  ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
-                      activeMode === 'submissions_explorer'
-                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
-                    }`
-                  : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
-                      activeMode === 'submissions_explorer'
-                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
-                    }`
-              }
-            >
-              <svg
-                className="w-4 h-4 shrink-0"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            <Tooltip content={`Submissions · ${submissions.length}`} side="right" disabled={!isSidebarMinimized} className="flex w-full">
+              <button
+                type="button"
+                onClick={() => navigateWorkspace('submissions_explorer')}
+                aria-label="Submissions"
+                className={
+                  isSidebarMinimized
+                    ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
+                        activeMode === 'submissions_explorer'
+                          ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                          : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
+                      }`
+                    : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
+                        activeMode === 'submissions_explorer'
+                          ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                          : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
+                      }`
+                }
               >
-                <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
-                <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
-              </svg>
-              {!isSidebarMinimized && (
-                <>
-                  <span className="truncate">Submissions</span>
-                  <span
-                    className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${
-                      activeMode === 'submissions_explorer'
-                        ? 'bg-zinc-700 text-zinc-100 dark:bg-zinc-200 dark:text-zinc-900'
-                        : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
-                    }`}
-                  >
-                    {submissions.length}
-                  </span>
-                </>
-              )}
-            </button>
+                <svg
+                  className="w-4 h-4 shrink-0"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+                  <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+                </svg>
+                {!isSidebarMinimized && (
+                  <>
+                    <span className="truncate">Submissions</span>
+                    <span
+                      className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${
+                        activeMode === 'submissions_explorer'
+                          ? 'bg-zinc-700 text-zinc-100 dark:bg-zinc-200 dark:text-zinc-900'
+                          : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
+                      }`}
+                    >
+                      {submissions.length}
+                    </span>
+                  </>
+                )}
+              </button>
+            </Tooltip>
 
             {/* Mode 4: Schema JSON */}
-            <button
-              type="button"
-              onClick={() => navigateWorkspace('schema', activeForm?.id)}
-              title="Schema JSON"
-              aria-label="Schema JSON"
-              className={
-                isSidebarMinimized
-                  ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
-                      activeMode === 'schema'
-                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
-                    }`
-                  : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
-                      activeMode === 'schema'
-                        ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
-                        : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
-                    }`
-              }
-            >
-              <svg
-                className="w-4 h-4 shrink-0"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            <Tooltip content="Schema JSON" side="right" disabled={!isSidebarMinimized} className="flex w-full">
+              <button
+                type="button"
+                onClick={() => navigateWorkspace('schema', activeForm?.id)}
+                aria-label="Schema JSON"
+                className={
+                  isSidebarMinimized
+                    ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
+                        activeMode === 'schema'
+                          ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                          : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
+                      }`
+                    : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
+                        activeMode === 'schema'
+                          ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                          : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
+                      }`
+                }
               >
-                <polyline points="16 18 22 12 16 6" />
-                <polyline points="8 6 2 12 8 18" />
-              </svg>
-              {!isSidebarMinimized && (
-                <span className="truncate">Schema JSON</span>
-              )}
-            </button>
+                <svg
+                  className="w-4 h-4 shrink-0"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="16 18 22 12 16 6" />
+                  <polyline points="8 6 2 12 8 18" />
+                </svg>
+                {!isSidebarMinimized && (
+                  <span className="truncate">Schema JSON</span>
+                )}
+              </button>
+            </Tooltip>
           </nav>
         </div>
 
@@ -1869,40 +1849,37 @@ export default function App() {
           {/* Left Section */}
           <div className="flex items-center min-w-0 gap-2.5">
             {/* Side Navigation Minimize / Expand Toggle Button */}
-            <button
-              type="button"
-              onClick={() => setIsSidebarMinimized((prev) => !prev)}
-              aria-label={
-                isSidebarMinimized
-                  ? 'Expand side navigation'
-                  : 'Minimize side navigation'
-              }
-              aria-expanded={!isSidebarMinimized}
-              title={
-                isSidebarMinimized
-                  ? 'Expand side navigation'
-                  : 'Minimize side navigation (icons only)'
-              }
-              className="h-8 w-8 rounded-md border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-600 hover:text-zinc-900 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100 flex items-center justify-center transition-colors cursor-pointer shrink-0"
-            >
-              <svg
-                className="w-4 h-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            <Tooltip content={isSidebarMinimized ? 'Expand sidebar' : 'Collapse sidebar'} side="bottom">
+              <button
+                type="button"
+                onClick={() => setIsSidebarMinimized((prev) => !prev)}
+                aria-label={
+                  isSidebarMinimized
+                    ? 'Expand side navigation'
+                    : 'Minimize side navigation'
+                }
+                aria-expanded={!isSidebarMinimized}
+                className="h-8 w-8 rounded-md border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-600 hover:text-zinc-900 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100 flex items-center justify-center transition-colors cursor-pointer shrink-0"
               >
-                <rect width="18" height="18" x="3" y="3" rx="2" />
-                <path d="M9 3v18" />
-                {isSidebarMinimized ? (
-                  <path d="m13 15 3-3-3-3" />
-                ) : (
-                  <path d="m16 15-3-3 3-3" />
-                )}
-              </svg>
-            </button>
+                <svg
+                  className="w-4 h-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect width="18" height="18" x="3" y="3" rx="2" />
+                  <path d="M9 3v18" />
+                  {isSidebarMinimized ? (
+                    <path d="m13 15 3-3-3-3" />
+                  ) : (
+                    <path d="m16 15-3-3 3-3" />
+                  )}
+                </svg>
+              </button>
+            </Tooltip>
 
             {/* Vertical divider */}
             <div className="h-4 w-px bg-zinc-200 shrink-0" />
@@ -2070,26 +2047,28 @@ export default function App() {
             {activeMode === 'edit' && (
               <>
                 <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={handleUndo}
-                    disabled={!canUndo}
-                    className="h-8 w-8 rounded-md flex items-center justify-center text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                    title="Undo (Ctrl+Z)"
-                    aria-label="Undo"
-                  >
-                    <span className="text-sm font-semibold select-none">↺</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleRedo}
-                    disabled={!canRedo}
-                    className="h-8 w-8 rounded-md flex items-center justify-center text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                    title="Redo (Ctrl+Y)"
-                    aria-label="Redo"
-                  >
-                    <span className="text-sm font-semibold select-none">↻</span>
-                  </button>
+                  <Tooltip content="Undo (Ctrl+Z)" side="bottom">
+                    <button
+                      type="button"
+                      onClick={handleUndo}
+                      disabled={!canUndo}
+                      className="h-8 w-8 rounded-md flex items-center justify-center text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      aria-label="Undo"
+                    >
+                      <span className="text-sm font-semibold select-none">↺</span>
+                    </button>
+                  </Tooltip>
+                  <Tooltip content="Redo (Ctrl+Y)" side="bottom">
+                    <button
+                      type="button"
+                      onClick={handleRedo}
+                      disabled={!canRedo}
+                      className="h-8 w-8 rounded-md flex items-center justify-center text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      aria-label="Redo"
+                    >
+                      <span className="text-sm font-semibold select-none">↻</span>
+                    </button>
+                  </Tooltip>
                 </div>
                 <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 shrink-0" />
               </>
@@ -2152,19 +2131,11 @@ export default function App() {
               tenants={tenants}
               forms={forms}
               submissions={submissions}
-              users={tenantUsers}
               activeTenantId={activeTenant.id}
               isSuperadmin={userIsSuperadmin}
               onSelectTenant={handleSelectTenant}
               onCreateTenant={handleCreateTenant}
-              onUpdateTenant={handleUpdateTenant}
-              onCreateTenantUser={handleCreateTenantUser}
-              onUpdateTenantUser={handleUpdateTenantUser}
-              onDeleteTenantUser={handleDeleteTenantUser}
-              onResetTenantUserCredentials={handleResetTenantUserCredentials}
-              onEditForm={handleEditFormFromDirectory}
-              onViewForm={handleViewFormFromDirectory}
-              onViewFormSubmissions={handleViewFormSubmissions}
+              onOpenForm={handleOpenFormDetail}
               onCreateFormForTenant={handleCreateFormForTenant}
             />
           )}

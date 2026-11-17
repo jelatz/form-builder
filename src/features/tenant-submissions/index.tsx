@@ -13,18 +13,13 @@ import {
   PageContainer,
   Select,
   type FilterDropdownOption,
+  Tooltip,
 } from '../../shared/ui';
-import type {
-  ManagedTenantUser,
-  ResetUserCredentialsResponse,
-} from './storage';
 import {
   CreateTenantModal,
-  EditTenantModal,
   SelectedCheckIcon,
   type CreateTenantInputPayload,
 } from './tenant-modals';
-import { TenantUsersModal } from './tenant-users-modal';
 import {
   formatIsoTimestamp,
   formatSubmissionValue,
@@ -52,47 +47,11 @@ export interface TenantDashboardPanelProps {
   tenants: ClientTenant[];
   forms: FormSchema[];
   submissions: SubmissionRecord[];
-  users?: ManagedTenantUser[];
   activeTenantId: string;
   isSuperadmin?: boolean;
   onSelectTenant: (tenantId: string, navigateToForms?: boolean) => void;
   onCreateTenant: (input: CreateTenantInputPayload) => Promise<void>;
-  onUpdateTenant: (
-    tenantId: string,
-    input: {
-      name: string;
-      slug: string;
-      status?: 'active' | 'suspended';
-    },
-  ) => Promise<void> | void;
-  onCreateTenantUser?: (input: {
-    clientId: string;
-    username: string;
-    displayName: string;
-    password: string;
-    role: 'tenant_admin' | 'tenant_member';
-  }) => Promise<void>;
-  onUpdateTenantUser?: (
-    userId: string,
-    input: {
-      username?: string;
-      displayName?: string;
-      role?: 'tenant_admin' | 'tenant_member';
-      isActive?: boolean;
-      password?: string;
-    },
-  ) => Promise<void>;
-  onDeleteTenantUser?: (userId: string) => Promise<void>;
-  onResetTenantUserCredentials?: (
-    userId: string,
-    input: {
-      password?: string;
-      email?: string;
-    },
-  ) => Promise<ResetUserCredentialsResponse>;
-  onEditForm: (form: FormSchema) => void;
-  onViewForm: (form: FormSchema) => void;
-  onViewFormSubmissions: (form: FormSchema) => void;
+  onOpenForm: (form: FormSchema) => void;
   onCreateFormForTenant: (tenantId: string, title: string) => void;
 }
 
@@ -100,19 +59,11 @@ export function TenantDashboardPanel({
   tenants,
   forms,
   submissions,
-  users = [],
   activeTenantId,
   isSuperadmin = true,
   onSelectTenant,
   onCreateTenant,
-  onUpdateTenant,
-  onCreateTenantUser,
-  onUpdateTenantUser,
-  onDeleteTenantUser,
-  onResetTenantUserCredentials,
-  onEditForm,
-  onViewForm,
-  onViewFormSubmissions,
+  onOpenForm,
   onCreateFormForTenant,
 }: TenantDashboardPanelProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -123,14 +74,6 @@ export function TenantDashboardPanel({
   const [showCreateFormModal, setShowCreateFormModal] = useState(false);
   const [newFormTenantId, setNewFormTenantId] = useState(activeTenantId);
   const [newFormTitle, setNewFormTitle] = useState('');
-  const [editingTenant, setEditingTenant] = useState<ClientTenant | null>(null);
-  const [managingUsersTenantId, setManagingUsersTenantId] = useState<
-    string | null
-  >(null);
-
-  const managingUsersTenant = managingUsersTenantId
-    ? (tenants.find((t) => t.id === managingUsersTenantId) ?? null)
-    : null;
 
   useEffect(() => {
     if (!showCreateFormModal) return;
@@ -281,8 +224,8 @@ export function TenantDashboardPanel({
             </div>
             <p className="text-xs text-zinc-500">
               {isSuperadmin
-                ? 'Overview of platform metrics, client tenants, and all forms. Click a tenant row to filter forms, and use form action icons to edit, preview, or view submissions.'
-                : 'Overview of your workspace metrics and forms. Use the action icons on any row to edit, preview, or view submissions.'}
+                ? 'Overview of platform metrics, client tenants, and all forms. Click a tenant row to filter forms, or click any form row to view its details.'
+                : 'Overview of your workspace metrics and forms. Click any form row to view its details.'}
             </p>
           </div>
 
@@ -465,7 +408,6 @@ export function TenantDashboardPanel({
                       <th className="py-2.5 px-3">Forms</th>
                       <th className="py-2.5 px-3">Submissions</th>
                       <th className="py-2.5 px-3">Created</th>
-                      <th className="py-2.5 px-3 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 text-xs">
@@ -541,90 +483,6 @@ export function TenantDashboardPanel({
                           <td className="py-2.5 px-3 font-mono text-zinc-500 whitespace-nowrap">
                             {tenant.createdAt.slice(0, 10)}
                           </td>
-                          <td
-                            className="py-2.5 px-3 text-right whitespace-nowrap"
-                            onClick={(e) => e.stopPropagation()}
-                            onKeyDown={(e) => e.stopPropagation()}
-                          >
-                            <div className="inline-flex items-center justify-end gap-1.5">
-                              {onCreateTenantUser &&
-                                onUpdateTenantUser &&
-                                onDeleteTenantUser && (
-                                  <Button
-                                    size="xs"
-                                    variant="secondary"
-                                    onClick={() =>
-                                      setManagingUsersTenantId(tenant.id)
-                                    }
-                                    aria-label={`Manage users and credentials for ${tenant.name}`}
-                                    title={`Manage users and credentials for ${tenant.name}`}
-                                    className="h-7 w-7 p-0"
-                                  >
-                                    <svg
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      className="h-3.5 w-3.5"
-                                      aria-hidden="true"
-                                    >
-                                      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                                      <circle cx="9" cy="7" r="4" />
-                                      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                                      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                                    </svg>
-                                  </Button>
-                                )}
-                              <Button
-                                size="xs"
-                                variant="secondary"
-                                onClick={() => setEditingTenant(tenant)}
-                                aria-label={`Edit ${tenant.name}`}
-                                title={`Edit ${tenant.name}`}
-                                className="h-7 w-7 p-0"
-                              >
-                                <svg
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  className="h-3.5 w-3.5"
-                                  aria-hidden="true"
-                                >
-                                  <path d="M12 20h9" />
-                                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                                </svg>
-                              </Button>
-                              <Button
-                                size="xs"
-                                variant="secondary"
-                                onClick={() => onSelectTenant(tenant.id, true)}
-                                aria-label={`Open ${tenant.name} in All Forms`}
-                                title={`Open ${tenant.name} in All Forms`}
-                                className="h-7 w-7 p-0"
-                              >
-                                <svg
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  className="h-3.5 w-3.5"
-                                  aria-hidden="true"
-                                >
-                                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                                  <polyline points="14 2 14 8 20 8" />
-                                  <line x1="16" y1="13" x2="8" y2="13" />
-                                  <line x1="16" y1="17" x2="8" y2="17" />
-                                </svg>
-                              </Button>
-                            </div>
-                          </td>
                         </tr>
                       );
                     })}
@@ -648,7 +506,7 @@ export function TenantDashboardPanel({
                   : `All Forms (${filteredForms.length})`}
               </span>
               <span className="text-xs text-zinc-400">
-                Use action icons to edit, preview, or view submissions
+                Click a row to view form details and actions
               </span>
             </div>
             {filteredTenant && (
@@ -707,12 +565,14 @@ export function TenantDashboardPanel({
                     <th className="py-2.5 px-3">Fields</th>
                     <th className="py-2.5 px-3">Submissions</th>
                     <th className="py-2.5 px-3">Updated</th>
-                    <th className="py-2.5 px-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 text-xs">
                   {filteredForms.map((form) => {
                     const tenant = tenantMap.get(form.clientId);
+                    const isFormActive =
+                      form.isPublished !== false &&
+                      tenant?.status !== 'suspended';
                     const formSubCount =
                       submissionCountByFormKey.get(
                         `${form.clientId}::${form.id}`,
@@ -721,22 +581,39 @@ export function TenantDashboardPanel({
                     return (
                       <tr
                         key={form.id}
-                        className="hover:bg-zinc-50 text-zinc-700 transition-colors"
+                        tabIndex={0}
+                        onClick={() => onOpenForm(form)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onOpenForm(form);
+                          }
+                        }}
+                        className="hover:bg-zinc-50 text-zinc-700 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/40"
                       >
                         <td className="py-2.5 px-3">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="font-medium text-zinc-900">
                               {form.title}
                             </span>
+                            <Badge
+                              variant={isFormActive ? 'success' : 'warning'}
+                              className="shrink-0"
+                              title={
+                                form.isPublished === false
+                                  ? 'Form is unpublished (not accepting public responses)'
+                                  : tenant?.status === 'suspended'
+                                    ? 'Tenant workspace is suspended (not accepting public responses)'
+                                    : 'Form is published and accepting public responses'
+                              }
+                            >
+                              {isFormActive ? 'ACTIVE' : 'INACTIVE'}
+                            </Badge>
                           </div>
-                          {form.description ? (
+                          {form.description && (
                             <p className="text-xs text-zinc-500 mt-0.5 line-clamp-1 max-w-xs">
                               {form.description}
                             </p>
-                          ) : (
-                            <span className="font-mono text-[11px] text-zinc-400">
-                              /{form.slug}
-                            </span>
                           )}
                         </td>
                         {isSuperadmin && (
@@ -761,76 +638,6 @@ export function TenantDashboardPanel({
                         </td>
                         <td className="py-2.5 px-3 font-mono text-zinc-500 whitespace-nowrap">
                           {formatIsoTimestamp(form.updatedAt)}
-                        </td>
-                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center justify-end gap-1.5">
-                            <Button
-                              size="xs"
-                              variant="secondary"
-                              onClick={() => onEditForm(form)}
-                              aria-label={`Edit ${form.title}`}
-                              title={`Edit ${form.title}`}
-                              className="h-7 w-7 p-0"
-                            >
-                              <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="h-3.5 w-3.5"
-                                aria-hidden="true"
-                              >
-                                <path d="M12 20h9" />
-                                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                              </svg>
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="secondary"
-                              onClick={() => onViewForm(form)}
-                              aria-label={`Preview ${form.title}`}
-                              title={`Preview ${form.title}`}
-                              className="h-7 w-7 p-0"
-                            >
-                              <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="h-3.5 w-3.5"
-                                aria-hidden="true"
-                              >
-                                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-                                <circle cx="12" cy="12" r="3" />
-                              </svg>
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="secondary"
-                              onClick={() => onViewFormSubmissions(form)}
-                              aria-label={`Submissions for ${form.title}`}
-                              title={`Submissions for ${form.title}`}
-                              className="h-7 w-7 p-0"
-                            >
-                              <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="h-3.5 w-3.5"
-                                aria-hidden="true"
-                              >
-                                <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
-                                <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
-                              </svg>
-                            </Button>
-                          </div>
                         </td>
                       </tr>
                     );
@@ -926,39 +733,6 @@ export function TenantDashboardPanel({
           </div>
         </div>
       )}
-
-      {/* Edit Tenant Details Modal */}
-      <EditTenantModal
-        tenant={editingTenant}
-        tenants={tenants}
-        idPrefix="dashboard"
-        onClose={() => setEditingTenant(null)}
-        onUpdateTenant={onUpdateTenant}
-        onManageUsers={
-          onCreateTenantUser && onUpdateTenantUser && onDeleteTenantUser
-            ? (target) => {
-                setEditingTenant(null);
-                setManagingUsersTenantId(target.id);
-              }
-            : undefined
-        }
-      />
-
-      {/* Tenant Users & Credentials Modal */}
-      {managingUsersTenant &&
-        onCreateTenantUser &&
-        onUpdateTenantUser &&
-        onDeleteTenantUser && (
-          <TenantUsersModal
-            tenant={managingUsersTenant}
-            users={users}
-            onClose={() => setManagingUsersTenantId(null)}
-            onCreateUser={onCreateTenantUser}
-            onUpdateUser={onUpdateTenantUser}
-            onDeleteUser={onDeleteTenantUser}
-            onResetCredentials={onResetTenantUserCredentials}
-          />
-        )}
     </main>
   );
 }
@@ -1573,23 +1347,25 @@ export function FormsDirectoryPanel({
                 className="h-9 w-full pl-9 pr-14 bg-zinc-50 focus:bg-white text-xs"
               />
               {searchQuery ? (
-                <button
-                  type="button"
-                  aria-label="Clear search"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2 rounded p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 cursor-pointer"
-                >
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    className="h-3.5 w-3.5"
-                    aria-hidden="true"
+                <Tooltip content="Clear search" className="absolute right-2">
+                  <button
+                    type="button"
+                    aria-label="Clear search"
+                    onClick={() => setSearchQuery('')}
+                    className="rounded p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 cursor-pointer"
                   >
-                    <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" strokeLinecap="round" />
-                  </svg>
-                </button>
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      className="h-3.5 w-3.5"
+                      aria-hidden="true"
+                    >
+                      <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </Tooltip>
               ) : (
                 <kbd className="pointer-events-none absolute right-2.5 rounded border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
                   ⌘K

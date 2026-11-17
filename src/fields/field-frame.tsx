@@ -1,7 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import type { BaseFieldConfig, SelectOption } from '../domain/form-schema';
 import { cn } from '../shared/lib';
-import { Button, Input, Label, Switch } from '../shared/ui';
+import { Button, Input, Label, Switch, Tooltip } from '../shared/ui';
 
 const FieldLayoutContext = createContext<'horizontal' | 'stacked'>('horizontal');
 
@@ -243,15 +243,17 @@ export function OptionsEditor({ options, onChange }: OptionsEditorProps) {
               placeholder="value"
               className="h-8 text-xs font-mono"
             />
-            <Button
-              size="xs"
-              variant="ghost"
-              disabled={options.length <= 1}
-              onClick={() => handleRemoveOption(index)}
-              aria-label={`Remove option ${index + 1}`}
-            >
-              ×
-            </Button>
+            <Tooltip content="Remove option">
+              <Button
+                size="xs"
+                variant="ghost"
+                disabled={options.length <= 1}
+                onClick={() => handleRemoveOption(index)}
+                aria-label={`Remove option ${index + 1}`}
+              >
+                ×
+              </Button>
+            </Tooltip>
           </div>
         ))}
       </div>

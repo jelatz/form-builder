@@ -174,3 +174,40 @@ export function validateEditTenantUserInput(input: {
     },
   };
 }
+
+export interface NewTenantUserDraft {
+  username: string;
+  displayName: string;
+  password: string;
+  role: 'tenant_admin' | 'tenant_member';
+}
+
+/**
+ * Validates a batch of new team member drafts. Returns one error message (or
+ * null) per draft, in order. Usernames are checked for duplicates within the
+ * batch and against `existingUsernames` (case-insensitive).
+ */
+export function validateNewTenantUserDrafts(
+  drafts: NewTenantUserDraft[],
+  existingUsernames: string[],
+): (string | null)[] {
+  const taken = new Set(existingUsernames.map((u) => u.toLowerCase()));
+  const seen = new Set<string>();
+
+  return drafts.map((draft) => {
+    const base = validateEditTenantUserInput(draft);
+    if (!base.ok) return base.error;
+    if (draft.password.length < 8) {
+      return 'Password must be at least 8 characters.';
+    }
+    const key = base.data.username.toLowerCase();
+    if (taken.has(key)) {
+      return `Username "${base.data.username}" is already in use.`;
+    }
+    if (seen.has(key)) {
+      return `Username "${base.data.username}" is duplicated in this list.`;
+    }
+    seen.add(key);
+    return null;
+  });
+}

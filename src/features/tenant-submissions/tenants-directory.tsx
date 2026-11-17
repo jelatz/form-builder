@@ -11,6 +11,7 @@ import {
   Input,
   PageContainer,
   type FilterDropdownOption,
+  Tooltip,
 } from '../../shared/ui';
 import {
   CreateTenantModal,
@@ -369,23 +370,25 @@ export function TenantsDirectoryPanel({
                 className="h-9 w-full pl-9 pr-14 bg-zinc-50 focus:bg-white text-xs"
               />
               {searchQuery ? (
-                <button
-                  type="button"
-                  aria-label="Clear search"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2 rounded p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 cursor-pointer"
-                >
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    className="h-3.5 w-3.5"
-                    aria-hidden="true"
+                <Tooltip content="Clear search" className="absolute right-2">
+                  <button
+                    type="button"
+                    aria-label="Clear search"
+                    onClick={() => setSearchQuery('')}
+                    className="rounded p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 cursor-pointer"
                   >
-                    <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" strokeLinecap="round" />
-                  </svg>
-                </button>
+                    <svg
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      className="h-3.5 w-3.5"
+                      aria-hidden="true"
+                    >
+                      <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </Tooltip>
               ) : (
                 <kbd className="pointer-events-none absolute right-2.5 rounded border border-zinc-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
                   ⌘K
@@ -582,9 +585,6 @@ export function TenantsDirectoryPanel({
                                 : 'ACTIVE'}
                             </Badge>
                           </div>
-                          <span className="block font-mono text-[11px] text-zinc-400 mt-0.5">
-                            /{tenant.slug}
-                          </span>
                         </td>
 
                         <td
@@ -643,85 +643,84 @@ export function TenantsDirectoryPanel({
                             {onCreateTenantUser &&
                               onUpdateTenantUser &&
                               onDeleteTenantUser && (
-                                <Button
-                                  size="xs"
-                                  variant="secondary"
-                                  onClick={() =>
-                                    setManagingUsersTenantId(tenant.id)
-                                  }
-                                  aria-label={`Manage users and credentials for ${tenant.name}`}
-                                  title={`Manage users and credentials for ${tenant.name}`}
-                                  className="h-7 w-7 p-0"
-                                >
-                                  <svg
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    className="h-3.5 w-3.5"
-                                    aria-hidden="true"
+                                <Tooltip content="Manage team">
+                                  <Button
+                                    size="xs"
+                                    variant="secondary"
+                                    onClick={() =>
+                                      setManagingUsersTenantId(tenant.id)
+                                    }
+                                    aria-label={`Manage users and credentials for ${tenant.name}`}
+                                    className="h-7 w-7 p-0"
                                   >
-                                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                                    <circle cx="9" cy="7" r="4" />
-                                    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                                  </svg>
-                                </Button>
+                                    <svg
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      className="h-3.5 w-3.5"
+                                      aria-hidden="true"
+                                    >
+                                      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                                      <circle cx="9" cy="7" r="4" />
+                                      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                                      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                                    </svg>
+                                  </Button>
+                                </Tooltip>
                               )}
-                            <Button
-                              size="xs"
-                              variant="secondary"
-                              onClick={() => setEditingTenant(tenant)}
-                              aria-label={`Edit ${tenant.name}`}
-                              title={`Edit ${tenant.name}`}
-                              className="h-7 w-7 p-0"
-                            >
-                              <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="h-3.5 w-3.5"
-                                aria-hidden="true"
+                            <Tooltip content="Edit tenant">
+                              <Button
+                                size="xs"
+                                variant="secondary"
+                                onClick={() => setEditingTenant(tenant)}
+                                aria-label={`Edit ${tenant.name}`}
+                                className="h-7 w-7 p-0"
                               >
-                                <path d="M12 20h9" />
-                                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                              </svg>
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="danger"
-                              disabled={!canDeleteTenants}
-                              onClick={() => setDeletingTenant(tenant)}
-                              aria-label={`Delete ${tenant.name}`}
-                              title={
-                                canDeleteTenants
-                                  ? `Delete ${tenant.name}`
-                                  : 'Cannot delete the last remaining tenant'
-                              }
-                              className="h-7 w-7 p-0"
-                            >
-                              <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="h-3.5 w-3.5"
-                                aria-hidden="true"
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  className="h-3.5 w-3.5"
+                                  aria-hidden="true"
+                                >
+                                  <path d="M12 20h9" />
+                                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                </svg>
+                              </Button>
+                            </Tooltip>
+                            <Tooltip content={canDeleteTenants ? 'Delete tenant' : 'Cannot delete the last remaining tenant'}>
+                              <Button
+                                size="xs"
+                                variant="danger"
+                                disabled={!canDeleteTenants}
+                                onClick={() => setDeletingTenant(tenant)}
+                                aria-label={`Delete ${tenant.name}`}
+                                className="h-7 w-7 p-0"
                               >
-                                <path d="M3 6h18" />
-                                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                                <line x1="10" x2="10" y1="11" y2="17" />
-                                <line x1="14" x2="14" y1="11" y2="17" />
-                              </svg>
-                            </Button>
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  className="h-3.5 w-3.5"
+                                  aria-hidden="true"
+                                >
+                                  <path d="M3 6h18" />
+                                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                                  <line x1="10" x2="10" y1="11" y2="17" />
+                                  <line x1="14" x2="14" y1="11" y2="17" />
+                                </svg>
+                              </Button>
+                            </Tooltip>
                           </div>
                         </td>
                       </tr>

@@ -7,7 +7,7 @@ import {
 } from '../../domain/form-schema';
 import { bindFieldModule, FieldLayoutProvider } from '../../fields/registry';
 import { cn } from '../../shared/lib';
-import { Button } from '../../shared/ui';
+import { Button, Tooltip } from '../../shared/ui';
 
 const REORDER_DRAG_MIME = 'application/x-form-builder-field-index';
 const PALETTE_DRAG_MIME = 'application/x-form-builder-field-type';
@@ -320,19 +320,20 @@ export function BuilderCanvas({
           className="relative flex items-center justify-center py-1"
         >
           <div className="w-full border-t border-dashed border-zinc-400/80" />
-          <button
-            type="button"
-            onClick={() =>
-              onAddFieldAt('section', 0, {
-                label: 'New Section',
-                showLine: true,
-              })
-            }
-            title="Add Section Header"
-            className="absolute h-6 w-6 rounded-full bg-white border border-zinc-300 shadow-2xs flex items-center justify-center text-zinc-500 hover:text-emerald-600 hover:border-emerald-500 transition-colors cursor-pointer text-sm leading-none"
-          >
-            +
-          </button>
+          <Tooltip content="Add section header" className="absolute">
+            <button
+              type="button"
+              onClick={() =>
+                onAddFieldAt('section', 0, {
+                  label: 'New Section',
+                  showLine: true,
+                })
+              }
+              className="h-6 w-6 rounded-full bg-white border border-zinc-300 shadow-2xs flex items-center justify-center text-zinc-500 hover:text-emerald-600 hover:border-emerald-500 transition-colors cursor-pointer text-sm leading-none"
+            >
+              +
+            </button>
+          </Tooltip>
         </div>
 
         {/* Part C: Continuous Form Sheet Card */}
@@ -415,44 +416,46 @@ export function BuilderCanvas({
                           : 'opacity-0 group-hover:opacity-100',
                       )}
                     >
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        disabled={topIndex === 0}
-                        onClick={() => {
-                          const prevTopField = topLevelFields[topIndex - 1];
-                          const prevSchemaIndex = schema.fields.findIndex(
-                            (f) => f.id === prevTopField.id,
-                          );
-                          if (prevSchemaIndex !== -1) {
-                            onMoveField(schemaIndex, prevSchemaIndex);
-                          }
-                        }}
-                        aria-label={`Move ${field.label} up`}
-                        title="Move Up"
-                        className="h-6 px-1.5 text-xs"
-                      >
-                        ↑
-                      </Button>
-                      <Button
-                        size="xs"
-                        variant="ghost"
-                        disabled={topIndex === topLevelFields.length - 1}
-                        onClick={() => {
-                          const nextTopField = topLevelFields[topIndex + 1];
-                          const nextSchemaIndex = schema.fields.findIndex(
-                            (f) => f.id === nextTopField.id,
-                          );
-                          if (nextSchemaIndex !== -1) {
-                            onMoveField(schemaIndex, nextSchemaIndex);
-                          }
-                        }}
-                        aria-label={`Move ${field.label} down`}
-                        title="Move Down"
-                        className="h-6 px-1.5 text-xs"
-                      >
-                        ↓
-                      </Button>
+                      <Tooltip content="Move up">
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          disabled={topIndex === 0}
+                          onClick={() => {
+                            const prevTopField = topLevelFields[topIndex - 1];
+                            const prevSchemaIndex = schema.fields.findIndex(
+                              (f) => f.id === prevTopField.id,
+                            );
+                            if (prevSchemaIndex !== -1) {
+                              onMoveField(schemaIndex, prevSchemaIndex);
+                            }
+                          }}
+                          aria-label={`Move ${field.label} up`}
+                          className="h-6 px-1.5 text-xs"
+                        >
+                          ↑
+                        </Button>
+                      </Tooltip>
+                      <Tooltip content="Move down">
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          disabled={topIndex === topLevelFields.length - 1}
+                          onClick={() => {
+                            const nextTopField = topLevelFields[topIndex + 1];
+                            const nextSchemaIndex = schema.fields.findIndex(
+                              (f) => f.id === nextTopField.id,
+                            );
+                            if (nextSchemaIndex !== -1) {
+                              onMoveField(schemaIndex, nextSchemaIndex);
+                            }
+                          }}
+                          aria-label={`Move ${field.label} down`}
+                          className="h-6 px-1.5 text-xs"
+                        >
+                          ↓
+                        </Button>
+                      </Tooltip>
                       <Button
                         size="xs"
                         variant="ghost"

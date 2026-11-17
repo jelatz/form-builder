@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { FormField, FormSchema } from '../../domain/form-schema';
 import { bindFieldModule } from '../../fields/registry';
 import { THEME_OPTIONS, type ThemeMode } from '../../shared/lib';
-import { Badge, Button, Input, Label, Select, Switch } from '../../shared/ui';
+import { Badge, Button, Input, Label, Select, Switch, Tooltip } from '../../shared/ui';
 
 export interface PropertyInspectorProps {
   schema: FormSchema;
@@ -107,15 +107,16 @@ export function PropertyInspector({
               <Badge variant="neutral">
                 {showFieldInspector && bound ? bound.definition.badge : 'FORM'}
               </Badge>
-              <button
-                type="button"
-                onClick={() => setIsDrawerOpen(false)}
-                className="h-6 w-6 rounded-md hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 flex items-center justify-center cursor-pointer text-base leading-none transition-colors"
-                aria-label="Close inspector drawer"
-                title="Close inspector"
-              >
-                ×
-              </button>
+              <Tooltip content="Close inspector">
+                <button
+                  type="button"
+                  onClick={() => setIsDrawerOpen(false)}
+                  className="h-6 w-6 rounded-md hover:bg-zinc-100 text-zinc-400 hover:text-zinc-700 flex items-center justify-center cursor-pointer text-base leading-none transition-colors"
+                  aria-label="Close inspector drawer"
+                >
+                  ×
+                </button>
+              </Tooltip>
             </div>
           </div>
 
@@ -283,30 +284,31 @@ export function PropertyInspector({
         <div
           className={`relative z-30 pointer-events-auto w-10 shrink-0 ${borderClass} bg-white flex flex-col items-center py-3 select-none`}
         >
-          <button
-            type="button"
-            onClick={() => setIsDrawerOpen(true)}
-            className="w-7 h-7 rounded-md border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-600 hover:text-zinc-900 flex items-center justify-center transition-colors cursor-pointer"
-            title="Open Inspector"
-            aria-label="Open Inspector"
-          >
-            <svg
-              className="w-4 h-4"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
+          <Tooltip content="Open inspector" side="left">
+            <button
+              type="button"
+              onClick={() => setIsDrawerOpen(true)}
+              className="w-7 h-7 rounded-md border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 text-zinc-600 hover:text-zinc-900 flex items-center justify-center transition-colors cursor-pointer"
+              aria-label="Open Inspector"
             >
-              {isLeftSide ? (
-                <path d="m9 18 6-6-6-6" />
-              ) : (
-                <path d="m15 18-6-6 6-6" />
-              )}
-            </svg>
-          </button>
+              <svg
+                className="w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                {isLeftSide ? (
+                  <path d="m9 18 6-6-6-6" />
+                ) : (
+                  <path d="m15 18-6-6 6-6" />
+                )}
+              </svg>
+            </button>
+          </Tooltip>
         </div>
       )}
     </div>

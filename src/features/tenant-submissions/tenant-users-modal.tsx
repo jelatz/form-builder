@@ -1,19 +1,30 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import type { ClientTenant } from '../../domain/form-schema';
-import { EMAIL_PATTERN } from '../../shared/lib';
+import { EMAIL_PATTERN, cn } from '../../shared/lib';
 import {
   Badge,
   Button,
   Input,
   Label,
   Select,
+  Tooltip,
   type DropdownOption,
 } from '../../shared/ui';
 import type {
   ManagedTenantUser,
   ResetUserCredentialsResponse,
 } from './storage';
-import { validateEditTenantUserInput } from './tenant-utils';
+import {
+  validateEditTenantUserInput,
+  validateNewTenantUserDrafts,
+  type NewTenantUserDraft,
+} from './tenant-utils';
 
 export interface TenantUsersModalProps {
   tenant: ClientTenant;
@@ -46,6 +57,13 @@ export interface TenantUsersModalProps {
   ) => Promise<ResetUserCredentialsResponse>;
 }
 
+type TenantRole = 'tenant_admin' | 'tenant_member';
+
+interface MemberDraftRow extends NewTenantUserDraft {
+  key: string;
+  error: string | null;
+}
+
 const ROLE_OPTIONS: DropdownOption[] = [
   {
     value: 'tenant_admin',
@@ -61,6 +79,146 @@ const ROLE_OPTIONS: DropdownOption[] = [
   },
 ];
 
+const MAX_BATCH_SIZE = 10;
+
+let draftKeyCounter = 0;
+function createDraftRow(role: TenantRole = 'tenant_member'): MemberDraftRow {
+  draftKeyCounter += 1;
+  return {
+    key: `draft-${draftKeyCounter}`,
+    username: '',
+    displayName: '',
+    password: '',
+    role,
+    error: null,
+  };
+}
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  const first = parts[0]?.[0] ?? '';
+  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? '') : '';
+  return (first + last).toUpperCase();
+}
+
+/* ------------------------------------------------------------------ */
+/* Icons                                                               */
+/* ------------------------------------------------------------------ */
+
+function SvgIcon({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+
+const PencilIcon = () => (
+  <SvgIcon>
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+  </SvgIcon>
+);
+const KeyIcon = () => (
+  <SvgIcon>
+    <circle cx="7.5" cy="15.5" r="4.5" />
+    <path d="m10.7 12.3 9.8-9.8" />
+    <path d="m17 6 3 3" />
+    <path d="m14.5 8.5 2 2" />
+  </SvgIcon>
+);
+const BanIcon = () => (
+  <SvgIcon>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m5.6 5.6 12.8 12.8" />
+  </SvgIcon>
+);
+const CheckCircleIcon = () => (
+  <SvgIcon>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m8.5 12.5 2.5 2.5 4.5-5" />
+  </SvgIcon>
+);
+const TrashIcon = () => (
+  <SvgIcon>
+    <path d="M3 6h18" />
+    <path d="M8 6V4h8v2" />
+    <path d="M19 6l-1 14H6L5 6" />
+    <path d="M10 11v6" />
+    <path d="M14 11v6" />
+  </SvgIcon>
+);
+const CloseIcon = () => (
+  <SvgIcon>
+    <path d="M18 6 6 18" />
+    <path d="m6 6 12 12" />
+  </SvgIcon>
+);
+const PlusIcon = () => (
+  <SvgIcon>
+    <path d="M12 5v14" />
+    <path d="M5 12h14" />
+  </SvgIcon>
+);
+
+function IconActionButton({
+  label,
+  tooltip,
+  onClick,
+  disabled,
+  active,
+  tone = 'neutral',
+  children,
+}: {
+  label: string;
+  /** Short visible tooltip text; defaults to `label`. */
+  tooltip?: string;
+  onClick: () => void;
+  disabled?: boolean;
+  active?: boolean;
+  tone?: 'neutral' | 'danger';
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip content={tooltip ?? label}>
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={active}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        'inline-flex h-8 w-8 items-center justify-center rounded-md border transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40',
+        'disabled:opacity-50 disabled:pointer-events-none',
+        active
+          ? 'border-zinc-300 bg-zinc-100 text-zinc-900'
+          : 'border-transparent text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-900',
+        tone === 'danger' &&
+          !active &&
+          'hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600',
+      )}
+    >
+      {children}
+    </button>
+    </Tooltip>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Modal                                                               */
+/* ------------------------------------------------------------------ */
+
 export function TenantUsersModal({
   tenant,
   users,
@@ -70,20 +228,16 @@ export function TenantUsersModal({
   onDeleteUser,
   onResetCredentials,
 }: TenantUsersModalProps) {
-  const [username, setUsername] = useState('');
-  const [displayName, setDisplayName] = useState('');
-  const [password, setPassword] = useState('');
-  const [role, setRole] = useState<'tenant_admin' | 'tenant_member'>(
-    'tenant_admin',
-  );
+  const [drafts, setDrafts] = useState<MemberDraftRow[]>(() => [
+    createDraftRow(),
+  ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [addedNotice, setAddedNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editUsername, setEditUsername] = useState('');
   const [editDisplayName, setEditDisplayName] = useState('');
-  const [editRole, setEditRole] = useState<'tenant_admin' | 'tenant_member'>(
-    'tenant_admin',
-  );
+  const [editRole, setEditRole] = useState<TenantRole>('tenant_admin');
   const [resetUserId, setResetUserId] = useState<string | null>(null);
   const [resetPasswordDraft, setResetPasswordDraft] = useState('');
   const [resetEmailDraft, setResetEmailDraft] = useState('');
@@ -99,9 +253,25 @@ export function TenantUsersModal({
   );
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Move focus into the dialog on open (so key events originate inside it,
+  // not from the trigger button, whose table cell stops key propagation),
+  // and restore focus to the trigger on close.
+  useEffect(() => {
+    const previouslyFocused =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    dialogRef.current?.focus();
+    return () => {
+      previouslyFocused?.focus();
+    };
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
         onClose();
       }
     };
@@ -112,32 +282,80 @@ export function TenantUsersModal({
   }, [onClose]);
 
   const tenantUsers = users.filter((u) => u.clientId === tenant.id);
+  const activeCount = tenantUsers.filter((u) => u.isActive).length;
+
+  /* ---------------- Bulk add ---------------- */
+
+  const updateDraft = (key: string, patch: Partial<NewTenantUserDraft>) => {
+    setAddedNotice(null);
+    setDrafts((prev) =>
+      prev.map((d) => (d.key === key ? { ...d, ...patch, error: null } : d)),
+    );
+  };
+
+  const addDraftRow = () => {
+    setDrafts((prev) =>
+      prev.length >= MAX_BATCH_SIZE
+        ? prev
+        : [...prev, createDraftRow(prev[prev.length - 1]?.role)],
+    );
+  };
+
+  const removeDraftRow = (key: string) => {
+    setDrafts((prev) =>
+      prev.length <= 1 ? [createDraftRow()] : prev.filter((d) => d.key !== key),
+    );
+  };
 
   const handleCreateSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (isSubmitting) return;
     setError(null);
-    setIsSubmitting(true);
-    try {
-      await onCreateUser({
-        clientId: tenant.id,
-        username: username.trim(),
-        displayName: displayName.trim(),
-        password,
-        role,
-      });
-      setUsername('');
-      setDisplayName('');
-      setPassword('');
-      setRole('tenant_admin');
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Failed to create tenant user.',
+    setAddedNotice(null);
+
+    const validationErrors = validateNewTenantUserDrafts(
+      drafts,
+      tenantUsers.map((u) => u.username),
+    );
+    if (validationErrors.some((e) => e !== null)) {
+      setDrafts((prev) =>
+        prev.map((d, i) => ({ ...d, error: validationErrors[i] ?? null })),
       );
-    } finally {
-      setIsSubmitting(false);
+      return;
+    }
+
+    setIsSubmitting(true);
+    const failed: MemberDraftRow[] = [];
+    let createdCount = 0;
+    // Sequential to keep server-side uniqueness checks deterministic.
+    for (const draft of drafts) {
+      try {
+        await onCreateUser({
+          clientId: tenant.id,
+          username: draft.username.trim(),
+          displayName: draft.displayName.trim(),
+          password: draft.password,
+          role: draft.role,
+        });
+        createdCount += 1;
+      } catch (err) {
+        failed.push({
+          ...draft,
+          error:
+            err instanceof Error ? err.message : 'Failed to create team member.',
+        });
+      }
+    }
+    setIsSubmitting(false);
+    setDrafts(failed.length > 0 ? failed : [createDraftRow()]);
+    if (createdCount > 0) {
+      setAddedNotice(
+        `Added ${createdCount} team member${createdCount === 1 ? '' : 's'}.`,
+      );
     }
   };
+
+  /* ---------------- Existing user actions ---------------- */
 
   const handleToggleActive = async (user: ManagedTenantUser) => {
     setBusyUserId(user.id);
@@ -163,6 +381,15 @@ export function TenantUsersModal({
     setEditUsername(user.username);
     setEditDisplayName(user.displayName);
     setEditRole(user.role === 'tenant_member' ? 'tenant_member' : 'tenant_admin');
+  };
+
+  const toggleResetPanel = (user: ManagedTenantUser) => {
+    setError(null);
+    setEditingUserId(null);
+    setConfirmDeleteUserId(null);
+    setResetUserId(resetUserId === user.id ? null : user.id);
+    setResetPasswordDraft('');
+    setResetEmailDraft('');
   };
 
   const handleSaveUserEdit = async (userId: string) => {
@@ -259,6 +486,12 @@ export function TenantUsersModal({
     }
   };
 
+  const submitLabel = isSubmitting
+    ? 'Adding…'
+    : drafts.length === 1
+      ? 'Add member'
+      : `Add ${drafts.length} members`;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/50 p-4"
@@ -268,25 +501,36 @@ export function TenantUsersModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl rounded-lg border border-zinc-200 bg-white shadow-xl overflow-hidden flex flex-col max-h-[88vh]"
+        ref={dialogRef}
+        tabIndex={-1}
+        className="w-full max-w-3xl rounded-lg border border-zinc-200 bg-white shadow-xl overflow-hidden flex flex-col max-h-[88vh] focus:outline-none"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-5 py-3.5 border-b border-zinc-200 flex items-center justify-between gap-3">
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-zinc-200 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <Badge variant="neutral">TEAM ACCESS</Badge>
             <h2
               id="tenant-users-modal-title"
-              className="text-sm font-semibold text-zinc-900 mt-1 truncate"
+              className="text-base font-semibold text-zinc-900"
             >
-              {tenant.name} — Team Users
+              Manage team
             </h2>
+            <p className="mt-0.5 text-xs text-zinc-500 truncate">
+              Control who can sign in to the{' '}
+              <span className="font-medium text-zinc-700">{tenant.name}</span>{' '}
+              workspace.
+            </p>
           </div>
-          <Button size="xs" variant="secondary" onClick={onClose}>
-            Close
-          </Button>
+          <IconActionButton
+            label="Close dialog"
+            tooltip="Close (Esc)"
+            onClick={onClose}
+          >
+            <CloseIcon />
+          </IconActionButton>
         </div>
 
-        <div className="p-5 overflow-y-auto space-y-5">
+        <div className="p-5 overflow-y-auto space-y-6">
           {error && (
             <div
               role="alert"
@@ -341,121 +585,154 @@ export function TenantUsersModal({
             </div>
           )}
 
-          {/* Existing Tenant Users */}
-          <div className="space-y-2">
+          {/* Existing members */}
+          <section className="space-y-2.5" aria-labelledby="team-members-heading">
             <div className="flex items-center justify-between">
-              <span className="font-mono text-xs uppercase tracking-wider text-zinc-600 font-semibold">
-                Team Accounts ({tenantUsers.length})
+              <h3
+                id="team-members-heading"
+                className="font-mono text-xs uppercase tracking-wider text-zinc-600 font-semibold"
+              >
+                Members
+              </h3>
+              <span className="font-mono text-[11px] text-zinc-500">
+                {tenantUsers.length} total · {activeCount} active
               </span>
             </div>
 
             {tenantUsers.length === 0 ? (
               <div className="p-6 rounded-md border border-dashed border-zinc-300 bg-zinc-50/50 text-center text-xs text-zinc-500">
-                No team members added yet for {tenant.name}. Add one below.
+                No team members yet. Add your first member below.
               </div>
             ) : (
-              <div className="rounded-md border border-zinc-200 divide-y divide-zinc-100 overflow-hidden">
+              <ul className="rounded-lg border border-zinc-200 divide-y divide-zinc-100 overflow-hidden">
                 {tenantUsers.map((user) => {
                   const isBusy = busyUserId === user.id;
                   const isConfirmingDelete = confirmDeleteUserId === user.id;
+                  const isEditing = editingUserId === user.id;
+                  const isResetting = resetUserId === user.id;
                   return (
-                    <div key={user.id} className="p-3 bg-white space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="min-w-0">
+                    <li key={user.id} className="bg-white">
+                      <div className="flex items-center gap-3 px-3.5 py-3">
+                        <div
+                          className={cn(
+                            'flex h-9 w-9 shrink-0 items-center justify-center rounded-full border font-mono text-xs font-semibold',
+                            user.isActive
+                              ? 'border-zinc-200 bg-zinc-100 text-zinc-700'
+                              : 'border-zinc-200 bg-white text-zinc-400',
+                          )}
+                          aria-hidden="true"
+                        >
+                          {getInitials(user.displayName)}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-semibold text-zinc-900">
+                            <span
+                              className={cn(
+                                'truncate text-sm font-medium',
+                                user.isActive ? 'text-zinc-900' : 'text-zinc-500',
+                              )}
+                            >
                               {user.displayName}
-                            </span>
-                            <span className="font-mono text-xs text-zinc-500">
-                              @{user.username}
                             </span>
                             <Badge variant="neutral">
                               {user.role === 'tenant_admin' ? 'Admin' : 'Member'}
                             </Badge>
-                            <Badge
-                              variant={user.isActive ? 'success' : 'danger'}
-                            >
-                              {user.isActive ? 'ACTIVE' : 'DISABLED'}
-                            </Badge>
+                            {!user.isActive && (
+                              <Badge variant="danger">Disabled</Badge>
+                            )}
                           </div>
+                          <span className="block truncate font-mono text-xs text-zinc-500">
+                            @{user.username}
+                          </span>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="secondary"
-                            disabled={isBusy}
-                            onClick={() => startEditingUser(user)}
-                          >
-                            {editingUserId === user.id ? 'Close Edit' : 'Edit'}
-                          </Button>
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="secondary"
-                            disabled={isBusy}
-                            onClick={() => {
-                              setEditingUserId(null);
-                              setConfirmDeleteUserId(null);
-                              setResetUserId(
-                                resetUserId === user.id ? null : user.id,
-                              );
-                              setResetPasswordDraft('');
-                              setResetEmailDraft('');
-                            }}
-                          >
-                            Reset Credentials
-                          </Button>
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="secondary"
-                            disabled={isBusy}
-                            onClick={() => void handleToggleActive(user)}
-                          >
-                            {user.isActive ? 'Disable' : 'Enable'}
-                          </Button>
-                          {isConfirmingDelete ? (
-                            <>
-                              <Button
-                                type="button"
-                                size="xs"
-                                variant="ghost"
-                                disabled={isBusy}
-                                onClick={() => setConfirmDeleteUserId(null)}
-                              >
-                                Cancel
-                              </Button>
-                              <Button
-                                type="button"
-                                size="xs"
-                                variant="danger"
-                                disabled={isBusy}
-                                onClick={() => {
-                                  setConfirmDeleteUserId(null);
-                                  void handleDelete(user.id);
-                                }}
-                              >
-                                Confirm
-                              </Button>
-                            </>
-                          ) : (
+                        {isConfirmingDelete ? (
+                          <div className="flex items-center gap-2">
+                            <span className="hidden sm:inline text-xs text-zinc-600">
+                              Remove this member?
+                            </span>
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="ghost"
+                              disabled={isBusy}
+                              onClick={() => setConfirmDeleteUserId(null)}
+                            >
+                              Cancel
+                            </Button>
                             <Button
                               type="button"
                               size="xs"
                               variant="danger"
                               disabled={isBusy}
-                              onClick={() => setConfirmDeleteUserId(user.id)}
+                              onClick={() => {
+                                setConfirmDeleteUserId(null);
+                                void handleDelete(user.id);
+                              }}
                             >
-                              Delete
+                              Remove
                             </Button>
-                          )}
-                        </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-0.5">
+                            <IconActionButton
+                              label={`Edit ${user.displayName}`}
+                              tooltip={isEditing ? 'Close editor' : 'Edit profile'}
+                              active={isEditing}
+                              disabled={isBusy}
+                              onClick={() => startEditingUser(user)}
+                            >
+                              <PencilIcon />
+                            </IconActionButton>
+                            <IconActionButton
+                              label={`Reset credentials for ${user.displayName}`}
+                              tooltip="Reset password"
+                              active={isResetting}
+                              disabled={isBusy}
+                              onClick={() => toggleResetPanel(user)}
+                            >
+                              <KeyIcon />
+                            </IconActionButton>
+                            <IconActionButton
+                              label={
+                                user.isActive
+                                  ? `Disable ${user.displayName}`
+                                  : `Enable ${user.displayName}`
+                              }
+                              tooltip={
+                                user.isActive
+                                  ? 'Disable access'
+                                  : 'Enable access'
+                              }
+                              disabled={isBusy}
+                              onClick={() => void handleToggleActive(user)}
+                            >
+                              {user.isActive ? <BanIcon /> : <CheckCircleIcon />}
+                            </IconActionButton>
+                            <span
+                              className="mx-1 h-5 w-px bg-zinc-200"
+                              aria-hidden="true"
+                            />
+                            <IconActionButton
+                              label={`Delete ${user.displayName}`}
+                              tooltip="Remove member"
+                              tone="danger"
+                              disabled={isBusy}
+                              onClick={() => {
+                                setEditingUserId(null);
+                                setResetUserId(null);
+                                setConfirmDeleteUserId(user.id);
+                              }}
+                            >
+                              <TrashIcon />
+                            </IconActionButton>
+                          </div>
+                        )}
                       </div>
 
-                      {editingUserId === user.id && (
-                        <div className="rounded-md border border-zinc-200 bg-zinc-50/70 p-3 space-y-2.5">
+                      {isEditing && (
+                        <div className="mx-3.5 mb-3 rounded-md border border-zinc-200 bg-zinc-50/70 p-3 space-y-2.5">
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                             <div className="space-y-1">
                               <Label htmlFor={`edit-user-username-${user.id}`}>
@@ -498,9 +775,7 @@ export function TenantUsersModal({
                                 options={ROLE_OPTIONS}
                                 onValueChange={(next) => {
                                   setError(null);
-                                  setEditRole(
-                                    next as 'tenant_admin' | 'tenant_member',
-                                  );
+                                  setEditRole(next as TenantRole);
                                 }}
                                 disabled={isBusy}
                                 className="h-8 text-xs"
@@ -524,14 +799,14 @@ export function TenantUsersModal({
                               disabled={isBusy}
                               onClick={() => void handleSaveUserEdit(user.id)}
                             >
-                              Save Profile
+                              Save changes
                             </Button>
                           </div>
                         </div>
                       )}
 
-                      {resetUserId === user.id && (
-                        <div className="rounded-md border border-zinc-200 bg-zinc-50/70 p-3 space-y-2.5">
+                      {isResetting && (
+                        <div className="mx-3.5 mb-3 rounded-md border border-zinc-200 bg-zinc-50/70 p-3 space-y-2.5">
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                             <div className="space-y-1">
                               <Label htmlFor={`reset-pw-${user.id}`}>
@@ -601,83 +876,177 @@ export function TenantUsersModal({
                               onClick={() => void handleResetPassword(user)}
                             >
                               {resetPasswordDraft
-                                ? 'Save Password'
-                                : 'Generate & Reset'}
+                                ? 'Save password'
+                                : 'Generate & reset'}
                             </Button>
                           </div>
                         </div>
                       )}
-                    </div>
+                    </li>
                   );
                 })}
-              </div>
+              </ul>
             )}
-          </div>
+          </section>
 
-          {/* Create New Tenant User Form */}
+          {/* Add members (batch) */}
           <form
             onSubmit={(e) => void handleCreateSubmit(e)}
-            className="p-4 rounded-md border border-zinc-200 bg-zinc-50/70 space-y-3"
+            className="space-y-3"
+            aria-labelledby="add-members-heading"
+            noValidate
           >
-            <div className="font-mono text-xs uppercase tracking-wider text-zinc-600 font-semibold">
-              + Add Team Member
+            <div className="flex items-center justify-between">
+              <h3
+                id="add-members-heading"
+                className="font-mono text-xs uppercase tracking-wider text-zinc-600 font-semibold"
+              >
+                Add members
+              </h3>
+              <span className="font-mono text-[11px] text-zinc-500">
+                {drafts.length} / {MAX_BATCH_SIZE}
+              </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="new-tenant-user-username" requiredIndicator>
-                  Username
-                </Label>
-                <Input
-                  id="new-tenant-user-username"
-                  placeholder="e.g. acme_editor"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                />
+            {addedNotice && (
+              <div
+                role="status"
+                className="rounded-md border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-900"
+              >
+                {addedNotice}
               </div>
+            )}
 
-              <div className="space-y-1">
-                <Label htmlFor="new-tenant-user-display" requiredIndicator>
-                  Display Name
-                </Label>
-                <Input
-                  id="new-tenant-user-display"
-                  placeholder="e.g. Jane Doe"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                />
-              </div>
+            <div className="rounded-lg border border-zinc-200 divide-y divide-zinc-100">
+              {drafts.map((draft, index) => {
+                const n = index + 1;
+                return (
+                  <fieldset
+                    key={draft.key}
+                    className={cn(
+                      'p-3.5 space-y-2.5',
+                      draft.error && 'bg-rose-50/40',
+                    )}
+                    disabled={isSubmitting}
+                  >
+                    <div className="flex items-center justify-between">
+                      <legend className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
+                        Member {n}
+                      </legend>
+                      <IconActionButton
+                        label={`Remove member ${n} from list`}
+                        tooltip="Remove from list"
+                        tone="danger"
+                        disabled={
+                          isSubmitting ||
+                          (drafts.length === 1 &&
+                            !draft.username &&
+                            !draft.displayName &&
+                            !draft.password)
+                        }
+                        onClick={() => removeDraftRow(draft.key)}
+                      >
+                        <CloseIcon />
+                      </IconActionButton>
+                    </div>
 
-              <div className="space-y-1">
-                <Label htmlFor="new-tenant-user-password" requiredIndicator>
-                  Password (min 8 chars)
-                </Label>
-                <Input
-                  id="new-tenant-user-password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div className="space-y-1">
+                        <Label
+                          htmlFor={`new-user-display-${draft.key}`}
+                          requiredIndicator
+                        >
+                          Display name
+                        </Label>
+                        <Input
+                          id={`new-user-display-${draft.key}`}
+                          placeholder="e.g. Jane Doe"
+                          value={draft.displayName}
+                          onChange={(e) =>
+                            updateDraft(draft.key, {
+                              displayName: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label
+                          htmlFor={`new-user-username-${draft.key}`}
+                          requiredIndicator
+                        >
+                          Username
+                        </Label>
+                        <Input
+                          id={`new-user-username-${draft.key}`}
+                          placeholder="e.g. jane_doe"
+                          className="font-mono"
+                          autoComplete="off"
+                          value={draft.username}
+                          onChange={(e) =>
+                            updateDraft(draft.key, { username: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label
+                          htmlFor={`new-user-password-${draft.key}`}
+                          requiredIndicator
+                        >
+                          Password
+                        </Label>
+                        <Input
+                          id={`new-user-password-${draft.key}`}
+                          type="password"
+                          placeholder="Min. 8 characters"
+                          autoComplete="new-password"
+                          value={draft.password}
+                          onChange={(e) =>
+                            updateDraft(draft.key, { password: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor={`new-user-role-${draft.key}`}>Role</Label>
+                        <Select
+                          id={`new-user-role-${draft.key}`}
+                          aria-label={`Role for member ${n}`}
+                          value={draft.role}
+                          options={ROLE_OPTIONS}
+                          onValueChange={(next) =>
+                            updateDraft(draft.key, { role: next as TenantRole })
+                          }
+                        />
+                      </div>
+                    </div>
 
-              <div className="space-y-1">
-                <Label htmlFor="new-tenant-user-role">Role</Label>
-                <Select
-                  id="new-tenant-user-role"
-                  aria-label="Tenant user role"
-                  value={role}
-                  options={ROLE_OPTIONS}
-                  onValueChange={(next) =>
-                    setRole(next as 'tenant_admin' | 'tenant_member')
-                  }
-                />
-              </div>
+                    {draft.error && (
+                      <p role="alert" className="text-xs text-rose-600">
+                        {draft.error}
+                      </p>
+                    )}
+                  </fieldset>
+                );
+              })}
             </div>
 
-            <div className="flex justify-end pt-1">
-              <Button type="submit" size="sm" variant="primary" disabled={isSubmitting}>
-                {isSubmitting ? 'Adding...' : 'Add Member'}
+            <div className="flex items-center justify-between gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={isSubmitting || drafts.length >= MAX_BATCH_SIZE}
+                onClick={addDraftRow}
+              >
+                <PlusIcon />
+                Add another
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                variant="primary"
+                disabled={isSubmitting}
+              >
+                {submitLabel}
               </Button>
             </div>
           </form>

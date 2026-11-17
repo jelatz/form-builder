@@ -6,6 +6,7 @@ import {
   type ZohoPaletteTab,
   type ZohoPaletteTile,
 } from '../../fields/registry';
+import { Tooltip } from '../../shared/ui';
 
 const PALETTE_DRAG_TYPE_MIME = 'application/x-form-builder-field-type';
 const PALETTE_DRAG_PRESET_MIME = 'application/x-form-builder-field-preset';
@@ -635,14 +636,16 @@ export function FieldPalette({ onAddField }: FieldPaletteProps) {
             className="h-8 w-full pl-8 pr-3 text-xs rounded-md border border-zinc-200 bg-zinc-50/50 text-zinc-800 placeholder:text-zinc-400 focus:bg-white focus:border-emerald-500 focus:outline-none"
           />
           {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 text-xs p-0.5"
-              aria-label="Clear search"
-            >
-              ✕
-            </button>
+            <Tooltip content="Clear search" className="absolute right-2 top-1/2 -translate-y-1/2">
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="text-zinc-400 hover:text-zinc-600 text-xs p-0.5"
+                aria-label="Clear search"
+              >
+                ✕
+              </button>
+            </Tooltip>
           )}
         </div>
       </div>

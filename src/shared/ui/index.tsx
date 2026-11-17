@@ -13,6 +13,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../lib';
+import { Tooltip } from './tooltip';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 export type ButtonSize = 'default' | 'sm' | 'xs';
@@ -748,27 +749,29 @@ export function MultiSelect({
               >
                 <span className="truncate max-w-44">{display}</span>
                 {!disabled && (
-                  <button
-                    type="button"
-                    aria-label={`Remove ${display}`}
-                    onClick={() => toggleValue(val)}
-                    className="rounded-xs text-zinc-400 hover:text-zinc-800 dark:text-zinc-500 dark:hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/40 cursor-pointer"
-                  >
-                    <svg
-                      viewBox="0 0 12 12"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.75"
-                      className="h-3 w-3"
-                      aria-hidden="true"
+                  <Tooltip content={`Remove ${display}`}>
+                    <button
+                      type="button"
+                      aria-label={`Remove ${display}`}
+                      onClick={() => toggleValue(val)}
+                      className="rounded-xs text-zinc-400 hover:text-zinc-800 dark:text-zinc-500 dark:hover:text-zinc-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/40 cursor-pointer"
                     >
-                      <path
-                        d="M3 3l6 6M9 3l-6 6"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </button>
+                      <svg
+                        viewBox="0 0 12 12"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.75"
+                        className="h-3 w-3"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M3 3l6 6M9 3l-6 6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
+                  </Tooltip>
                 )}
               </span>
             );
@@ -967,6 +970,7 @@ export interface BadgeProps {
   children: ReactNode;
   variant?: BadgeVariant;
   className?: string;
+  title?: string;
 }
 
 const BADGE_VARIANTS: Record<BadgeVariant, string> = {
@@ -984,9 +988,11 @@ export function Badge({
   children,
   variant = 'neutral',
   className,
+  title,
 }: BadgeProps) {
   return (
     <span
+      title={title}
       className={cn(
         'inline-flex items-center px-1.5 py-0.5 rounded-sm border font-mono text-xs uppercase tracking-wider',
         BADGE_VARIANTS[variant],
@@ -1178,3 +1184,5 @@ export function PageContainer({
     </div>
   );
 }
+
+export { Tooltip, type TooltipProps, type TooltipSide } from './tooltip';
