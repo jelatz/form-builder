@@ -1,7 +1,23 @@
 import { useEffect, useState } from 'react';
 import type { ClientTenant } from '../../domain/form-schema';
-import { Badge, Button, Input, Label } from '../../shared/ui';
-import { ensureUniqueTenantSlug, sanitizeTenantSlug } from './tenant-utils';
+import {
+  EMAIL_PATTERN,
+  USERNAME_PATTERN,
+  toSnakeCaseUsername,
+} from '../../shared/lib';
+import {
+  Badge,
+  Button,
+  Input,
+  Label,
+  Select,
+  type DropdownOption,
+} from '../../shared/ui';
+import {
+  ensureUniqueTenantSlug,
+  sanitizeTenantSlug,
+  validateEditTenantInput,
+} from './tenant-utils';
 
 /** Checkmark icon used to highlight active/selected tenant badges. */
 export function SelectedCheckIcon({ className }: { className?: string }) {
@@ -23,12 +39,19 @@ export function SelectedCheckIcon({ className }: { className?: string }) {
   );
 }
 
+export interface CreateTenantInputPayload {
+  name: string;
+  slug: string;
+  adminUsername: string;
+  email: string;
+}
+
 export interface CreateTenantModalProps {
   open: boolean;
   tenants: ClientTenant[];
   idPrefix: string;
   onClose: () => void;
-  onCreateTenant: (input: { name: string; slug: string }) => void;
+  onCreateTenant: (input: CreateTenantInputPayload) => Promise<void>;
 }
 
 /** Modal dialog for provisioning a new multi-tenant client workspace. */
@@ -40,14 +63,17 @@ export function CreateTenantModal({
   onCreateTenant,
 }: CreateTenantModalProps) {
   const [tenantName, setTenantName] = useState('');
-  const [tenantSlug, setTenantSlug] = useState('');
-  const [isSlugEdited, setIsSlugEdited] = useState(false);
+  const [adminUsername, setAdminUsername] = useState('');
+  const [isUsernameEdited, setIsUsernameEdited] = useState(false);
+  const [adminEmail, setAdminEmail] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !isSubmitting) {
         onClose();
       }
     };
@@ -56,59 +82,87 @@ export function CreateTenantModal({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [open, onClose]);
+  }, [open, isSubmitting, onClose]);
 
   if (!open) return null;
 
-  const normalizedSlug = isSlugEdited
-    ? sanitizeTenantSlug(tenantSlug)
-    : ensureUniqueTenantSlug(tenantName, tenants);
+  const resolvedUsername = isUsernameEdited
+    ? adminUsername.trim()
+    : tenantName.trim()
+      ? toSnakeCaseUsername(tenantName)
+      : '';
 
-  const hasSlugConflict =
-    isSlugEdited &&
-    normalizedSlug !== '' &&
-    tenants.some((t) => t.slug.toLowerCase() === normalizedSlug);
+  const hasUsernameError =
+    resolvedUsername !== '' && !USERNAME_PATTERN.test(resolvedUsername);
+
+  const trimmedEmail = adminEmail.trim();
+  const hasEmailError =
+    trimmedEmail !== '' && !EMAIL_PATTERN.test(trimmedEmail);
 
   const handleNameChange = (nextName: string) => {
     setTenantName(nextName);
-    if (!isSlugEdited) {
-      setTenantSlug(
-        nextName.trim() ? ensureUniqueTenantSlug(nextName, tenants) : '',
+    setSubmitError(null);
+    if (!isUsernameEdited) {
+      setAdminUsername(
+        nextName.trim() ? toSnakeCaseUsername(nextName) : '',
       );
     }
   };
 
-  const handleSlugChange = (nextSlug: string) => {
-    setIsSlugEdited(true);
-    setTenantSlug(nextSlug);
+  const handleUsernameChange = (nextUsername: string) => {
+    setIsUsernameEdited(true);
+    setSubmitError(null);
+    setAdminUsername(nextUsername);
   };
 
-  const handleSubmit = () => {
+  const canSubmit =
+    !isSubmitting &&
+    tenantName.trim().length >= 2 &&
+    USERNAME_PATTERN.test(resolvedUsername) &&
+    EMAIL_PATTERN.test(trimmedEmail);
+
+  const handleSubmit = async () => {
     const trimmedName = tenantName.trim();
-    if (!trimmedName || hasSlugConflict) return;
+    if (!canSubmit || !trimmedName) return;
 
-    const resolvedSlug = isSlugEdited
-      ? normalizedSlug || ensureUniqueTenantSlug(trimmedName, tenants)
-      : ensureUniqueTenantSlug(trimmedName, tenants);
+    const resolvedSlug = ensureUniqueTenantSlug(trimmedName, tenants);
 
-    onCreateTenant({
-      name: trimmedName,
-      slug: resolvedSlug,
-    });
-    setTenantName('');
-    setTenantSlug('');
-    setIsSlugEdited(false);
-    onClose();
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      await onCreateTenant({
+        name: trimmedName,
+        slug: resolvedSlug,
+        adminUsername: resolvedUsername,
+        email: trimmedEmail.toLowerCase(),
+      });
+      setTenantName('');
+      setAdminUsername('');
+      setIsUsernameEdited(false);
+      setAdminEmail('');
+      onClose();
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to create tenant workspace.',
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const titleId = `${idPrefix}_create_tenant_modal_title`;
   const nameId = `${idPrefix}_new_tenant_name`;
-  const slugId = `${idPrefix}_new_tenant_slug`;
+  const usernameId = `${idPrefix}_new_tenant_username`;
+  const emailId = `${idPrefix}_new_tenant_email`;
 
   return (
     <div
       className="fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4"
-      onClick={onClose}
+      onClick={() => {
+        if (!isSubmitting) onClose();
+      }}
     >
       <form
         role="dialog"
@@ -118,7 +172,7 @@ export function CreateTenantModal({
         onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
-          handleSubmit();
+          void handleSubmit();
         }}
       >
         <div className="flex items-center justify-between border-b border-zinc-200 pb-2">
@@ -128,59 +182,113 @@ export function CreateTenantModal({
           >
             New Client Tenant
           </span>
-          <Badge variant="neutral">MULTI-TENANT</Badge>
         </div>
+
+        {submitError && (
+          <div
+            role="alert"
+            className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700"
+          >
+            {submitError}
+          </div>
+        )}
+
         <div className="space-y-1.5">
           <Label htmlFor={nameId}>Organization Name</Label>
           <Input
             id={nameId}
             value={tenantName}
             onChange={(e) => handleNameChange(e.target.value)}
-            placeholder="Stark Industries"
+            placeholder="Value One"
+            disabled={isSubmitting}
             autoFocus
           />
         </div>
+
         <div className="space-y-1.5">
-          <Label htmlFor={slugId}>Workspace Slug</Label>
+          <Label htmlFor={usernameId}>Default Admin Username</Label>
           <Input
-            id={slugId}
-            value={tenantSlug}
-            onChange={(e) => handleSlugChange(e.target.value)}
-            placeholder="stark-industries"
+            id={usernameId}
+            value={adminUsername}
+            onChange={(e) => handleUsernameChange(e.target.value)}
+            placeholder="value_one"
+            disabled={isSubmitting}
             className="font-mono text-xs"
           />
-          {hasSlugConflict ? (
+          {hasUsernameError ? (
             <p className="text-[11px] text-rose-600">
-              Slug <span className="font-mono">/{normalizedSlug}</span> is
-              already used by another tenant.
+              Username must be 3–32 characters (letters, numbers, _, ., or -).
             </p>
           ) : (
             <p className="text-[11px] text-zinc-500">
-              Forms route under{' '}
-              <span className="font-mono text-zinc-700">
-                /{normalizedSlug || 'tenant-slug'}/&lt;form-slug&gt;
-              </span>
-              .
+              Auto-derived from organization name for the initial admin account.
             </p>
           )}
         </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor={emailId}>Admin Email</Label>
+          <Input
+            id={emailId}
+            type="email"
+            autoComplete="email"
+            required
+            value={adminEmail}
+            onChange={(e) => {
+              setSubmitError(null);
+              setAdminEmail(e.target.value);
+            }}
+            placeholder="admin@valueone.com"
+            disabled={isSubmitting}
+          />
+          {hasEmailError ? (
+            <p className="text-[11px] text-rose-600">
+              Please enter a valid email address.
+            </p>
+          ) : (
+            <p className="text-[11px] text-zinc-500">
+              A generated password will be emailed to this address.
+            </p>
+          )}
+        </div>
+
         <div className="flex items-center justify-end gap-2 pt-2">
-          <Button size="xs" variant="ghost" onClick={onClose}>
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={onClose}
+            disabled={isSubmitting}
+          >
             Cancel
           </Button>
           <Button
             type="submit"
             size="xs"
             variant="primary"
-            disabled={!tenantName.trim() || hasSlugConflict}
+            disabled={!canSubmit}
           >
-            Create Tenant
+            {isSubmitting ? 'Creating...' : 'Create Tenant'}
           </Button>
         </div>
       </form>
     </div>
   );
 }
+
+const TENANT_STATUS_OPTIONS: DropdownOption[] = [
+  {
+    value: 'active',
+    label: 'Active',
+    description: 'Tenant portal logins and public forms are enabled',
+    meta: 'ACTIVE',
+  },
+  {
+    value: 'suspended',
+    label: 'Suspended',
+    description: 'Revokes active sessions and blocks logins and public forms',
+    meta: 'SUSPENDED',
+  },
+];
 
 export interface EditTenantModalProps {
   tenant: ClientTenant | null;
@@ -192,8 +300,10 @@ export interface EditTenantModalProps {
     input: {
       name: string;
       slug: string;
+      status: 'active' | 'suspended';
     },
-  ) => void;
+  ) => Promise<void> | void;
+  onManageUsers?: (tenant: ClientTenant) => void;
 }
 
 interface EditTenantModalFormProps {
@@ -202,6 +312,7 @@ interface EditTenantModalFormProps {
   idPrefix: string;
   onClose: () => void;
   onUpdateTenant: EditTenantModalProps['onUpdateTenant'];
+  onManageUsers?: (tenant: ClientTenant) => void;
 }
 
 function EditTenantModalForm({
@@ -210,13 +321,19 @@ function EditTenantModalForm({
   idPrefix,
   onClose,
   onUpdateTenant,
+  onManageUsers,
 }: EditTenantModalFormProps) {
   const [editName, setEditName] = useState(tenant.name);
   const [editSlug, setEditSlug] = useState(tenant.slug);
+  const [editStatus, setEditStatus] = useState<'active' | 'suspended'>(
+    tenant.status ?? 'active',
+  );
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !isSubmitting) {
         onClose();
       }
     };
@@ -225,38 +342,47 @@ function EditTenantModalForm({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [onClose]);
+  }, [isSubmitting, onClose]);
 
-  const normalizedSlug = sanitizeTenantSlug(editSlug);
-  const hasSlugConflict =
-    normalizedSlug !== '' &&
-    tenants.some(
-      (t) => t.id !== tenant.id && t.slug.toLowerCase() === normalizedSlug,
+  const previewSlug = sanitizeTenantSlug(editSlug) || tenant.slug;
+
+  const handleSubmit = async () => {
+    if (isSubmitting) return;
+    const validation = validateEditTenantInput(
+      { name: editName, slug: editSlug, status: editStatus },
+      tenants,
+      tenant.id,
     );
+    if (!validation.ok) {
+      setSubmitError(validation.error);
+      return;
+    }
 
-  const handleSubmit = () => {
-    const trimmedName = editName.trim();
-    if (!trimmedName || hasSlugConflict) return;
-
-    const resolvedSlug =
-      normalizedSlug ||
-      ensureUniqueTenantSlug(tenant.slug || trimmedName, tenants, tenant.id);
-
-    onUpdateTenant(tenant.id, {
-      name: trimmedName,
-      slug: resolvedSlug,
-    });
-    onClose();
+    setIsSubmitting(true);
+    setSubmitError(null);
+    try {
+      await onUpdateTenant(tenant.id, validation.data);
+      onClose();
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : 'Failed to update tenant details.',
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const titleId = `${idPrefix}_edit_tenant_modal_title`;
   const nameId = `${idPrefix}_edit_tenant_name`;
   const slugId = `${idPrefix}_edit_tenant_slug`;
+  const statusId = `${idPrefix}_edit_tenant_status`;
 
   return (
     <div
       className="fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4"
-      onClick={onClose}
+      onClick={() => {
+        if (!isSubmitting) onClose();
+      }}
     >
       <form
         role="dialog"
@@ -266,7 +392,7 @@ function EditTenantModalForm({
         onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
-          handleSubmit();
+          void handleSubmit();
         }}
       >
         <div className="flex items-center justify-between border-b border-zinc-200 pb-2">
@@ -276,67 +402,132 @@ function EditTenantModalForm({
           >
             Edit Tenant Details
           </span>
-          <Badge variant="neutral">{tenant.id}</Badge>
+          <Badge variant={editStatus === 'suspended' ? 'danger' : 'success'}>
+            {editStatus === 'suspended' ? 'SUSPENDED' : 'ACTIVE'}
+          </Badge>
         </div>
+
+        {submitError && (
+          <div
+            role="alert"
+            className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700"
+          >
+            {submitError}
+          </div>
+        )}
+
         <div className="space-y-1.5">
-          <Label htmlFor={nameId}>Organization Name</Label>
+          <Label htmlFor={nameId} requiredIndicator>
+            Organization Name
+          </Label>
           <Input
             id={nameId}
             value={editName}
-            onChange={(e) => setEditName(e.target.value)}
+            onChange={(e) => {
+              setSubmitError(null);
+              setEditName(e.target.value);
+            }}
             placeholder="Acme Corp"
+            disabled={isSubmitting}
             autoFocus
           />
         </div>
+
         <div className="space-y-1.5">
-          <Label htmlFor={slugId}>Workspace Slug</Label>
+          <Label htmlFor={slugId} requiredIndicator>
+            Workspace URL Slug
+          </Label>
           <Input
             id={slugId}
             value={editSlug}
-            onChange={(e) => setEditSlug(e.target.value)}
+            onChange={(e) => {
+              setSubmitError(null);
+              setEditSlug(e.target.value);
+            }}
             placeholder="acme-corp"
+            disabled={isSubmitting}
             className="font-mono text-xs"
           />
-          {hasSlugConflict ? (
-            <p className="text-[11px] text-rose-600">
-              Slug <span className="font-mono">/{normalizedSlug}</span> is
-              already used by another tenant.
-            </p>
-          ) : (
-            <p className="text-[11px] text-zinc-500">
-              Forms route under{' '}
-              <span className="font-mono text-zinc-700">
-                /{normalizedSlug || tenant.slug}/&lt;form-slug&gt;
-              </span>
-              .
+          <div className="rounded-md border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 font-mono text-[11px] text-zinc-500 space-y-0.5">
+            <div className="truncate">
+              Login: <span className="text-zinc-800">/t/{previewSlug}/login</span>
+            </div>
+            <div className="truncate">
+              Forms: <span className="text-zinc-800">/f/{previewSlug}/&lt;form-slug&gt;</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor={statusId}>Workspace Status</Label>
+          <Select
+            id={statusId}
+            aria-label="Workspace Status"
+            value={editStatus}
+            options={TENANT_STATUS_OPTIONS}
+            onValueChange={(next) => {
+              setSubmitError(null);
+              setEditStatus(next as 'active' | 'suspended');
+            }}
+            disabled={isSubmitting}
+          />
+          {editStatus === 'suspended' && (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
+              Suspending this workspace immediately revokes active tenant
+              sessions, blocks logins, and hides public forms.
             </p>
           )}
         </div>
-        <div className="flex items-center justify-end gap-2 pt-2">
-          <Button size="xs" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            size="xs"
-            variant="primary"
-            disabled={!editName.trim() || !normalizedSlug || hasSlugConflict}
-          >
-            Save Changes
-          </Button>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-200">
+          {onManageUsers ? (
+            <Button
+              type="button"
+              size="xs"
+              variant="secondary"
+              disabled={isSubmitting}
+              onClick={() => {
+                onClose();
+                onManageUsers(tenant);
+              }}
+            >
+              Manage Credentials &amp; Users
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex items-center gap-2">
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={onClose}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              size="xs"
+              variant="primary"
+              disabled={isSubmitting || !editName.trim() || !editSlug.trim()}
+            >
+              {isSubmitting ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </div>
         </div>
       </form>
     </div>
   );
 }
 
-/** Modal dialog for editing an existing client tenant's name and slug. */
+/** Modal dialog for editing an existing client tenant's details. */
 export function EditTenantModal({
   tenant,
   tenants = [],
   idPrefix,
   onClose,
   onUpdateTenant,
+  onManageUsers,
 }: EditTenantModalProps) {
   if (!tenant) return null;
 
@@ -348,6 +539,7 @@ export function EditTenantModal({
       idPrefix={idPrefix}
       onClose={onClose}
       onUpdateTenant={onUpdateTenant}
+      onManageUsers={onManageUsers}
     />
   );
 }
