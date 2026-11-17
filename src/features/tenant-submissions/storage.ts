@@ -62,17 +62,35 @@ export async function fetchTenantSnapshot(
   };
 }
 
+export interface EmailDeliveryResult {
+  status: 'sent' | 'logged';
+  provider: 'resend' | 'dev-console';
+  messageId?: string;
+}
+
+export interface CreateTenantResponse {
+  tenant: ClientTenant;
+  starterForm: FormSchema;
+  adminUser: ManagedTenantUser;
+  emailDelivery: EmailDeliveryResult;
+}
+
+export interface ResetUserCredentialsResponse {
+  user: ManagedTenantUser;
+  generatedPassword?: string;
+  emailDelivery?: EmailDeliveryResult;
+}
+
 export async function apiCreateTenant(input: {
   name: string;
   slug: string;
-}): Promise<{ tenant: ClientTenant; starterForm: FormSchema }> {
-  return apiRequest<{ tenant: ClientTenant; starterForm: FormSchema }>(
-    '/api/admin/tenants',
-    {
-      method: 'POST',
-      body: JSON.stringify(input),
-    },
-  );
+  adminUsername?: string;
+  email: string;
+}): Promise<CreateTenantResponse> {
+  return apiRequest<CreateTenantResponse>('/api/admin/tenants', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }
 
 export async function apiUpdateTenant(
@@ -115,6 +133,7 @@ export async function apiCreateTenantUser(input: {
 export async function apiUpdateTenantUser(
   userId: string,
   input: {
+    username?: string;
     displayName?: string;
     role?: 'tenant_admin' | 'tenant_member';
     isActive?: boolean;
@@ -129,6 +148,22 @@ export async function apiUpdateTenantUser(
     },
   );
   return res.user;
+}
+
+export async function apiResetTenantUserCredentials(
+  userId: string,
+  input: {
+    password?: string;
+    email?: string;
+  },
+): Promise<ResetUserCredentialsResponse> {
+  return apiRequest<ResetUserCredentialsResponse>(
+    `/api/admin/users/${encodeURIComponent(userId)}/reset-credentials`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
 }
 
 export async function apiDeleteTenantUser(userId: string): Promise<void> {
