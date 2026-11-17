@@ -9,14 +9,18 @@ import {
   Button,
   FilterDropdown,
   Input,
+  PageContainer,
   type FilterDropdownOption,
 } from '../../shared/ui';
 import {
   CreateTenantModal,
   EditTenantModal,
-  SelectedCheckIcon,
+  type CreateTenantInputPayload,
 } from './tenant-modals';
-import type { ManagedTenantUser } from './storage';
+import type {
+  ManagedTenantUser,
+  ResetUserCredentialsResponse,
+} from './storage';
 import { TenantUsersModal } from './tenant-users-modal';
 
 type TenantSortKey = 'name' | 'created' | 'forms' | 'submissions';
@@ -31,17 +35,16 @@ export interface TenantsDirectoryPanelProps {
   forms: FormSchema[];
   submissions: SubmissionRecord[];
   users?: ManagedTenantUser[];
-  activeTenantId: string;
   onSelectTenant: (tenantId: string, navigateToForms?: boolean) => void;
-  onInspectTenant: (tenantId: string) => void;
-  onCreateTenant: (input: { name: string; slug: string }) => void;
+  onCreateTenant: (input: CreateTenantInputPayload) => Promise<void>;
   onUpdateTenant: (
     tenantId: string,
     input: {
       name: string;
       slug: string;
+      status?: 'active' | 'suspended';
     },
-  ) => void;
+  ) => Promise<void> | void;
   onDeleteTenant: (tenantId: string) => void;
   onCreateTenantUser?: (input: {
     clientId: string;
@@ -53,12 +56,21 @@ export interface TenantsDirectoryPanelProps {
   onUpdateTenantUser?: (
     userId: string,
     input: {
+      username?: string;
+      displayName?: string;
       role?: 'tenant_admin' | 'tenant_member';
       isActive?: boolean;
       password?: string;
     },
   ) => Promise<void>;
   onDeleteTenantUser?: (userId: string) => Promise<void>;
+  onResetTenantUserCredentials?: (
+    userId: string,
+    input: {
+      password?: string;
+      email?: string;
+    },
+  ) => Promise<ResetUserCredentialsResponse>;
 }
 
 const ACTIVITY_LABELS: Record<TenantActivityFilter, string> = {
@@ -81,15 +93,14 @@ export function TenantsDirectoryPanel({
   forms,
   submissions,
   users = [],
-  activeTenantId,
   onSelectTenant,
-  onInspectTenant,
   onCreateTenant,
   onUpdateTenant,
   onDeleteTenant,
   onCreateTenantUser,
   onUpdateTenantUser,
   onDeleteTenantUser,
+  onResetTenantUserCredentials,
 }: TenantsDirectoryPanelProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activityFilter, setActivityFilter] =
@@ -283,7 +294,7 @@ export function TenantsDirectoryPanel({
       aria-label="Tenants Directory"
       className="flex-1 overflow-y-auto p-6 bg-[#f4f5f7]"
     >
-      <div className="w-full space-y-4">
+      <PageContainer>
         {/* Page Header Row */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
           <div className="space-y-1.5">
@@ -309,8 +320,8 @@ export function TenantsDirectoryPanel({
             </h1>
             <p className="text-xs text-zinc-500">
               Browse all isolated client tenant workspaces. Search by
-              organization, slug, or ID, switch active context, or jump
-              directly into a tenant&apos;s forms.
+              organization, switch active context, or jump directly into a
+              tenant&apos;s forms.
             </p>
           </div>
 
@@ -354,7 +365,7 @@ export function TenantsDirectoryPanel({
                 aria-label="Search tenants"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Filter tenants by name, /slug, or ID..."
+                placeholder="Filter tenants by name..."
                 className="h-9 w-full pl-9 pr-14 bg-zinc-50 focus:bg-white text-xs"
               />
               {searchQuery ? (
@@ -525,17 +536,15 @@ export function TenantsDirectoryPanel({
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-xs uppercase text-zinc-600">
                     <th className="py-2.5 px-3">Tenant</th>
-                    <th className="py-2.5 px-3">Slug</th>
                     <th className="py-2.5 px-3">Forms</th>
                     <th className="py-2.5 px-3">Submissions</th>
-                    <th className="py-2.5 px-3">Logins</th>
+                    <th className="py-2.5 px-3">Users</th>
                     <th className="py-2.5 px-3">Created</th>
                     <th className="py-2.5 px-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 text-xs">
                   {sortedTenants.map((tenant) => {
-                    const isActive = tenant.id === activeTenantId;
                     const formCount = formCountByTenant.get(tenant.id) ?? 0;
                     const submissionCount =
                       submissionCountByTenant.get(tenant.id) ?? 0;
@@ -554,31 +563,26 @@ export function TenantsDirectoryPanel({
                             onSelectTenant(tenant.id, false);
                           }
                         }}
-                        className={
-                          isActive
-                            ? 'bg-emerald-50/50 hover:bg-emerald-50/80 text-zinc-900 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/40'
-                            : 'hover:bg-zinc-50 text-zinc-700 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/40'
-                        }
+                        className="hover:bg-zinc-50 text-zinc-700 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/40"
                       >
                         <td className="py-3 px-3">
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-zinc-900">
                               {tenant.name}
                             </span>
-                            {isActive && (
-                              <Badge variant="success" className="gap-1">
-                                <SelectedCheckIcon className="w-3 h-3 text-emerald-600" />
-                                ACTIVE
-                              </Badge>
-                            )}
+                            <Badge
+                              variant={
+                                tenant.status === 'suspended'
+                                  ? 'danger'
+                                  : 'success'
+                              }
+                            >
+                              {tenant.status === 'suspended'
+                                ? 'SUSPENDED'
+                                : 'ACTIVE'}
+                            </Badge>
                           </div>
-                          <span className="font-mono text-[11px] text-zinc-400">
-                            {tenant.id}
-                          </span>
-                        </td>
-
-                        <td className="py-3 px-3">
-                          <span className="inline-flex items-center rounded border border-zinc-200 bg-zinc-50 px-2 py-0.5 font-mono text-xs text-zinc-700">
+                          <span className="block font-mono text-[11px] text-zinc-400 mt-0.5">
                             /{tenant.slug}
                           </span>
                         </td>
@@ -620,8 +624,8 @@ export function TenantsDirectoryPanel({
                             title={`Manage logins for ${tenant.name}`}
                             className="cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
                           >
-                            <Badge variant={userCount > 0 ? 'neutral' : 'danger'}>
-                              {userCount} {userCount === 1 ? 'login' : 'logins'}
+                            <Badge variant="neutral">
+                              {userCount} {userCount === 1 ? 'user' : 'users'}
                             </Badge>
                           </button>
                         </td>
@@ -636,62 +640,36 @@ export function TenantsDirectoryPanel({
                           onKeyDown={(e) => e.stopPropagation()}
                         >
                           <div className="inline-flex items-center justify-end gap-1.5">
-                            <Button
-                              size="xs"
-                              variant="secondary"
-                              onClick={() => onInspectTenant(tenant.id)}
-                              aria-label={`Inspect ${tenant.name} on Dashboard`}
-                              title={`Inspect ${tenant.name} details on Dashboard`}
-                              className="h-7 w-7 p-0"
-                            >
-                              <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="h-3.5 w-3.5"
-                                aria-hidden="true"
-                              >
-                                <rect width="7" height="9" x="3" y="3" rx="1" />
-                                <rect width="7" height="5" x="14" y="3" rx="1" />
-                                <rect width="7" height="9" x="14" y="12" rx="1" />
-                                <rect width="7" height="5" x="3" y="16" rx="1" />
-                              </svg>
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="secondary"
-                              onClick={() => onSelectTenant(tenant.id, true)}
-                              aria-label={`Forms for ${tenant.name}`}
-                              title={`View forms for ${tenant.name}`}
-                              className="h-7 w-7 p-0"
-                            >
-                              <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="h-3.5 w-3.5"
-                                aria-hidden="true"
-                              >
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                                <polyline points="14 2 14 8 20 8" />
-                                <line x1="16" y1="13" x2="8" y2="13" />
-                                <line x1="16" y1="17" x2="8" y2="17" />
-                              </svg>
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="secondary"
-                              onClick={() => setManagingUsersTenantId(tenant.id)}
-                              title={`Manage logins & portal URL for ${tenant.name}`}
-                            >
-                              Logins
-                            </Button>
+                            {onCreateTenantUser &&
+                              onUpdateTenantUser &&
+                              onDeleteTenantUser && (
+                                <Button
+                                  size="xs"
+                                  variant="secondary"
+                                  onClick={() =>
+                                    setManagingUsersTenantId(tenant.id)
+                                  }
+                                  aria-label={`Manage users and credentials for ${tenant.name}`}
+                                  title={`Manage users and credentials for ${tenant.name}`}
+                                  className="h-7 w-7 p-0"
+                                >
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    className="h-3.5 w-3.5"
+                                    aria-hidden="true"
+                                  >
+                                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                                    <circle cx="9" cy="7" r="4" />
+                                    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                                    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                                  </svg>
+                                </Button>
+                              )}
                             <Button
                               size="xs"
                               variant="secondary"
@@ -770,7 +748,7 @@ export function TenantsDirectoryPanel({
             </div>
           </div>
         )}
-      </div>
+      </PageContainer>
 
       {/* Create Tenant Modal */}
       <CreateTenantModal
@@ -788,6 +766,14 @@ export function TenantsDirectoryPanel({
         idPrefix="tenants_dir"
         onClose={() => setEditingTenant(null)}
         onUpdateTenant={onUpdateTenant}
+        onManageUsers={
+          onCreateTenantUser && onUpdateTenantUser && onDeleteTenantUser
+            ? (target) => {
+                setEditingTenant(null);
+                setManagingUsersTenantId(target.id);
+              }
+            : undefined
+        }
       />
 
       {/* Delete Tenant Confirmation Modal */}
@@ -804,15 +790,7 @@ export function TenantsDirectoryPanel({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
-              <div className="flex items-center gap-2">
-                <Badge variant="danger">DELETE TENANT</Badge>
-                <span className="font-mono text-xs text-zinc-500">
-                  /{deletingTenant.slug}
-                </span>
-              </div>
-              <span className="font-mono text-xs text-zinc-400">
-                {deletingTenant.id}
-              </span>
+              <Badge variant="danger">DELETE TENANT</Badge>
             </div>
 
             <div className="space-y-2">
@@ -840,12 +818,6 @@ export function TenantsDirectoryPanel({
             </div>
 
             <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 space-y-1.5 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-zinc-500">Workspace Slug</span>
-                <span className="font-mono text-zinc-800">
-                  /{deletingTenant.slug}
-                </span>
-              </div>
               <div className="flex items-center justify-between">
                 <span className="text-zinc-500">Created</span>
                 <span className="font-mono text-zinc-800">
@@ -889,6 +861,7 @@ export function TenantsDirectoryPanel({
             onCreateUser={onCreateTenantUser}
             onUpdateUser={onUpdateTenantUser}
             onDeleteUser={onDeleteTenantUser}
+            onResetCredentials={onResetTenantUserCredentials}
           />
         )}
     </main>

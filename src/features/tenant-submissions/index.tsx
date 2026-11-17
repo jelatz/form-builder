@@ -10,16 +10,30 @@ import {
   FilterDropdown,
   Input,
   Label,
+  PageContainer,
   Select,
   type FilterDropdownOption,
 } from '../../shared/ui';
+import type {
+  ManagedTenantUser,
+  ResetUserCredentialsResponse,
+} from './storage';
 import {
   CreateTenantModal,
   EditTenantModal,
   SelectedCheckIcon,
+  type CreateTenantInputPayload,
 } from './tenant-modals';
-import { formatIsoTimestamp } from './tenant-utils';
+import { TenantUsersModal } from './tenant-users-modal';
+import {
+  formatIsoTimestamp,
+  formatSubmissionValue,
+} from './tenant-utils';
 
+export {
+  FormDetailPanel,
+  type FormDetailPanelProps,
+} from './form-detail';
 export {
   GlobalSubmissionsPanel,
   type GlobalSubmissionsPanelProps,
@@ -38,18 +52,44 @@ export interface TenantDashboardPanelProps {
   tenants: ClientTenant[];
   forms: FormSchema[];
   submissions: SubmissionRecord[];
+  users?: ManagedTenantUser[];
   activeTenantId: string;
-  activeFormId: string;
   isSuperadmin?: boolean;
   onSelectTenant: (tenantId: string, navigateToForms?: boolean) => void;
-  onCreateTenant: (input: { name: string; slug: string }) => void;
+  onCreateTenant: (input: CreateTenantInputPayload) => Promise<void>;
   onUpdateTenant: (
     tenantId: string,
     input: {
       name: string;
       slug: string;
+      status?: 'active' | 'suspended';
     },
-  ) => void;
+  ) => Promise<void> | void;
+  onCreateTenantUser?: (input: {
+    clientId: string;
+    username: string;
+    displayName: string;
+    password: string;
+    role: 'tenant_admin' | 'tenant_member';
+  }) => Promise<void>;
+  onUpdateTenantUser?: (
+    userId: string,
+    input: {
+      username?: string;
+      displayName?: string;
+      role?: 'tenant_admin' | 'tenant_member';
+      isActive?: boolean;
+      password?: string;
+    },
+  ) => Promise<void>;
+  onDeleteTenantUser?: (userId: string) => Promise<void>;
+  onResetTenantUserCredentials?: (
+    userId: string,
+    input: {
+      password?: string;
+      email?: string;
+    },
+  ) => Promise<ResetUserCredentialsResponse>;
   onEditForm: (form: FormSchema) => void;
   onViewForm: (form: FormSchema) => void;
   onViewFormSubmissions: (form: FormSchema) => void;
@@ -60,22 +100,37 @@ export function TenantDashboardPanel({
   tenants,
   forms,
   submissions,
+  users = [],
   activeTenantId,
-  activeFormId,
   isSuperadmin = true,
   onSelectTenant,
   onCreateTenant,
   onUpdateTenant,
+  onCreateTenantUser,
+  onUpdateTenantUser,
+  onDeleteTenantUser,
+  onResetTenantUserCredentials,
   onEditForm,
   onViewForm,
   onViewFormSubmissions,
   onCreateFormForTenant,
 }: TenantDashboardPanelProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTenantFilter, setSelectedTenantFilter] = useState<string | null>(
+    null,
+  );
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showCreateFormModal, setShowCreateFormModal] = useState(false);
+  const [newFormTenantId, setNewFormTenantId] = useState(activeTenantId);
   const [newFormTitle, setNewFormTitle] = useState('');
   const [editingTenant, setEditingTenant] = useState<ClientTenant | null>(null);
+  const [managingUsersTenantId, setManagingUsersTenantId] = useState<
+    string | null
+  >(null);
+
+  const managingUsersTenant = managingUsersTenantId
+    ? (tenants.find((t) => t.id === managingUsersTenantId) ?? null)
+    : null;
 
   useEffect(() => {
     if (!showCreateFormModal) return;
@@ -92,96 +147,166 @@ export function TenantDashboardPanel({
     };
   }, [showCreateFormModal]);
 
+  const tenantMap = new Map<string, ClientTenant>(
+    tenants.map((t) => [t.id, t]),
+  );
+  const effectiveTenantFilter =
+    isSuperadmin && selectedTenantFilter && tenantMap.has(selectedTenantFilter)
+      ? selectedTenantFilter
+      : null;
+  const filteredTenant = effectiveTenantFilter
+    ? (tenantMap.get(effectiveTenantFilter) ?? null)
+    : null;
   const activeTenant =
     tenants.find((t) => t.id === activeTenantId) ?? tenants[0];
 
-  const handleCreateFormSubmit = () => {
-    const trimmed = newFormTitle.trim();
-    if (!trimmed || !activeTenant) return;
-    onCreateFormForTenant(activeTenant.id, trimmed);
-    setNewFormTitle('');
-    setShowCreateFormModal(false);
-  };
+  const formCountByTenant = new Map<string, number>();
+  let totalFieldsCount = 0;
+  let latestFormUpdatedAt: string | null = null;
+
+  for (const form of forms) {
+    formCountByTenant.set(
+      form.clientId,
+      (formCountByTenant.get(form.clientId) ?? 0) + 1,
+    );
+    totalFieldsCount += form.fields.length;
+    if (!latestFormUpdatedAt || form.updatedAt > latestFormUpdatedAt) {
+      latestFormUpdatedAt = form.updatedAt;
+    }
+  }
+
+  const submissionCountByTenant = new Map<string, number>();
+  const submissionCountByFormKey = new Map<string, number>();
+  let latestSubmissionAt: string | null = null;
+
+  for (const sub of submissions) {
+    submissionCountByTenant.set(
+      sub.clientId,
+      (submissionCountByTenant.get(sub.clientId) ?? 0) + 1,
+    );
+    const formKey = `${sub.clientId}::${sub.formId}`;
+    submissionCountByFormKey.set(
+      formKey,
+      (submissionCountByFormKey.get(formKey) ?? 0) + 1,
+    );
+    if (!latestSubmissionAt || sub.submittedAt > latestSubmissionAt) {
+      latestSubmissionAt = sub.submittedAt;
+    }
+  }
+
+  const latestActivityAt =
+    latestSubmissionAt && latestFormUpdatedAt
+      ? latestSubmissionAt > latestFormUpdatedAt
+        ? latestSubmissionAt
+        : latestFormUpdatedAt
+      : (latestSubmissionAt ?? latestFormUpdatedAt);
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
 
   const filteredTenants = tenants.filter((tenant) => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return true;
+    if (!normalizedQuery) return true;
     return (
-      tenant.name.toLowerCase().includes(q) ||
-      tenant.id.toLowerCase().includes(q) ||
-      tenant.slug.toLowerCase().includes(q)
+      tenant.name.toLowerCase().includes(normalizedQuery) ||
+      tenant.slug.toLowerCase().includes(normalizedQuery) ||
+      tenant.id.toLowerCase().includes(normalizedQuery)
     );
   });
 
-  const activeTenantForms = activeTenant
-    ? forms.filter((f) => f.clientId === activeTenant.id)
-    : [];
-  const activeTenantSubmissions = activeTenant
-    ? submissions
-        .filter((s) => s.clientId === activeTenant.id)
-        .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
-    : [];
-  const activeTenantTotalFields = activeTenantForms.reduce(
-    (sum, f) => sum + f.fields.length,
-    0,
-  );
-  const activeTenantFormMap = new Map(activeTenantForms.map((f) => [f.id, f]));
-  const latestFormUpdatedAt = activeTenantForms.reduce<string | null>(
-    (latest, f) => (!latest || f.updatedAt > latest ? f.updatedAt : latest),
-    null,
-  );
-  const latestSubmissionAt = activeTenantSubmissions[0]?.submittedAt ?? null;
+  const filteredForms = [...forms]
+    .filter((form) => {
+      if (effectiveTenantFilter && form.clientId !== effectiveTenantFilter) {
+        return false;
+      }
+      if (!normalizedQuery) return true;
+      const tenant = tenantMap.get(form.clientId);
+      return (
+        form.title.toLowerCase().includes(normalizedQuery) ||
+        form.slug.toLowerCase().includes(normalizedQuery) ||
+        (form.description?.toLowerCase().includes(normalizedQuery) ?? false) ||
+        (tenant?.name.toLowerCase().includes(normalizedQuery) ?? false)
+      );
+    })
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+
+  const handleToggleTenantFilter = (tenantId: string) => {
+    setSelectedTenantFilter((prev) => (prev === tenantId ? null : tenantId));
+    onSelectTenant(tenantId, false);
+  };
+
+  const handleOpenCreateFormModal = () => {
+    const fallbackTenantId =
+      effectiveTenantFilter ?? activeTenant?.id ?? tenants[0]?.id ?? '';
+    setNewFormTenantId(fallbackTenantId);
+    setNewFormTitle('');
+    setShowCreateFormModal(true);
+  };
+
+  const handleCreateFormSubmit = () => {
+    const trimmed = newFormTitle.trim();
+    const targetTenantId = isSuperadmin
+      ? newFormTenantId
+      : (activeTenant?.id ?? newFormTenantId);
+    if (!trimmed || !targetTenantId) return;
+    onCreateFormForTenant(targetTenantId, trimmed);
+    setNewFormTitle('');
+    setShowCreateFormModal(false);
+  };
 
   return (
     <main
       aria-label="Tenant Dashboard"
       className="flex-1 overflow-y-auto p-6 bg-[#f4f5f7]"
     >
-      <div className="w-full space-y-4">
+      <PageContainer>
         {/* Header & Action Bar */}
         <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs">
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="neutral">TENANT DASHBOARD</Badge>
-              {activeTenant && (
-                <span
-                  className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-sm border border-emerald-200 bg-emerald-50 font-mono text-[11px] text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200"
-                  title={`Selected tenant: ${activeTenant.name} (/${activeTenant.slug})`}
-                >
-                  <span
-                    className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <span className="uppercase tracking-wider text-[10px] text-emerald-700 dark:text-emerald-400">
-                    Selected:
-                  </span>
-                  <span className="font-semibold">{activeTenant.name}</span>
-                  <span className="text-emerald-700/80 dark:text-emerald-400/80 hidden sm:inline">
-                    (/{activeTenant.slug})
-                  </span>
+              <Badge variant="neutral">
+                {isSuperadmin ? 'DASHBOARD' : 'WORKSPACE OVERVIEW'}
+              </Badge>
+              {isSuperadmin ? (
+                <span className="font-mono text-xs text-zinc-500">
+                  {tenants.length} {tenants.length === 1 ? 'tenant' : 'tenants'} ·{' '}
+                  {forms.length} {forms.length === 1 ? 'form' : 'forms'}
                 </span>
+              ) : (
+                activeTenant && (
+                  <span className="font-mono text-xs text-zinc-500">
+                    {activeTenant.name} · {forms.length}{' '}
+                    {forms.length === 1 ? 'form' : 'forms'}
+                  </span>
+                )
               )}
-              <span className="font-mono text-xs text-zinc-500">
-                {filteredTenants.length} of {tenants.length}{' '}
-                {tenants.length === 1 ? 'workspace' : 'workspaces'}
-              </span>
             </div>
             <p className="text-xs text-zinc-500">
               {isSuperadmin
-                ? 'Select a client tenant workspace to inspect all tenant details, forms, and submission activity, or provision a new tenant.'
-                : 'Inspect your workspace details, forms, and recent submission activity.'}
+                ? 'Overview of platform metrics, client tenants, and all forms. Click a tenant row to filter forms, and use form action icons to edit, preview, or view submissions.'
+                : 'Overview of your workspace metrics and forms. Use the action icons on any row to edit, preview, or view submissions.'}
             </p>
           </div>
 
-          {isSuperadmin && (
-            <div className="flex flex-wrap items-center gap-2">
-              <Input
-                aria-label="Search tenants"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search tenant, id, or slug..."
-                className="h-8 w-56 text-xs"
-              />
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              aria-label={
+                isSuperadmin ? 'Search tenants and forms' : 'Search forms'
+              }
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={
+                isSuperadmin ? 'Search tenants or forms...' : 'Search forms...'
+              }
+              className="h-8 w-56 text-xs"
+            />
+            <Button
+              size="sm"
+              variant={isSuperadmin ? 'secondary' : 'primary'}
+              onClick={handleOpenCreateFormModal}
+              disabled={tenants.length === 0}
+            >
+              + New Form
+            </Button>
+            {isSuperadmin && (
               <Button
                 size="sm"
                 variant="primary"
@@ -189,54 +314,140 @@ export function TenantDashboardPanel({
               >
                 + New Tenant
               </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Summary KPI Cards */}
+        {isSuperadmin ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs space-y-1">
+              <span className="block font-mono text-xs uppercase text-zinc-500 font-semibold tracking-wider">
+                Total Tenants
+              </span>
+              <span className="block text-2xl font-bold font-mono text-zinc-900">
+                {tenants.length}
+              </span>
+              <p className="text-xs text-zinc-500">
+                Active isolated client workspaces
+              </p>
             </div>
-          )}
-        </div>
+            <div className="p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs space-y-1">
+              <span className="block font-mono text-xs uppercase text-zinc-500 font-semibold tracking-wider">
+                Total Forms
+              </span>
+              <span className="block text-2xl font-bold font-mono text-zinc-900">
+                {forms.length}
+              </span>
+              <p className="text-xs text-zinc-500">
+                Published and configured schemas
+              </p>
+            </div>
+            <div className="p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs space-y-1">
+              <span className="block font-mono text-xs uppercase text-zinc-500 font-semibold tracking-wider">
+                Total Submissions
+              </span>
+              <span className="block text-2xl font-bold font-mono text-zinc-900">
+                {submissions.length}
+              </span>
+              <p className="text-xs text-zinc-500">
+                Captured responses across tenants
+              </p>
+            </div>
+            <div className="p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs space-y-1">
+              <span className="block font-mono text-xs uppercase text-zinc-500 font-semibold tracking-wider">
+                Total Fields
+              </span>
+              <span className="block text-2xl font-bold font-mono text-zinc-900">
+                {totalFieldsCount}
+              </span>
+              <p className="text-xs text-zinc-500">
+                Configured inputs across all forms
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs space-y-1">
+              <span className="block font-mono text-xs uppercase text-zinc-500 font-semibold tracking-wider">
+                Forms
+              </span>
+              <span className="block text-2xl font-bold font-mono text-zinc-900">
+                {forms.length}
+              </span>
+              <p className="text-xs text-zinc-500">
+                Configured workspace schemas
+              </p>
+            </div>
+            <div className="p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs space-y-1">
+              <span className="block font-mono text-xs uppercase text-zinc-500 font-semibold tracking-wider">
+                Total Fields
+              </span>
+              <span className="block text-2xl font-bold font-mono text-zinc-900">
+                {totalFieldsCount}
+              </span>
+              <p className="text-xs text-zinc-500">
+                Configured inputs across forms
+              </p>
+            </div>
+            <div className="p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs space-y-1">
+              <span className="block font-mono text-xs uppercase text-zinc-500 font-semibold tracking-wider">
+                Submissions
+              </span>
+              <span className="block text-2xl font-bold font-mono text-zinc-900">
+                {submissions.length}
+              </span>
+              <p className="text-xs text-zinc-500">
+                Captured workspace responses
+              </p>
+            </div>
+            <div className="p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs space-y-1">
+              <span className="block font-mono text-xs uppercase text-zinc-500 font-semibold tracking-wider">
+                Last Activity
+              </span>
+              <span className="block text-2xl font-bold font-mono text-zinc-900">
+                {latestActivityAt ? latestActivityAt.slice(0, 10) : '—'}
+              </span>
+              <p className="text-xs text-zinc-500">
+                Latest form or submission update
+              </p>
+            </div>
+          </div>
+        )}
 
-        {/* Platform Summary Metrics Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs space-y-1">
-            <span className="block font-mono text-xs uppercase text-zinc-500 font-semibold tracking-wider">
-              Total Tenants
-            </span>
-            <span className="block text-2xl font-bold font-mono text-zinc-900">
-              {tenants.length}
-            </span>
-            <p className="text-xs text-zinc-500">
-              Active isolated client workspaces
-            </p>
-          </div>
-          <div className="p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs space-y-1">
-            <span className="block font-mono text-xs uppercase text-zinc-500 font-semibold tracking-wider">
-              Total Forms
-            </span>
-            <span className="block text-2xl font-bold font-mono text-zinc-900">
-              {forms.length}
-            </span>
-            <p className="text-xs text-zinc-500">
-              Published and configured schemas
-            </p>
-          </div>
-          <div className="p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs space-y-1">
-            <span className="block font-mono text-xs uppercase text-zinc-500 font-semibold tracking-wider">
-              Total Submissions
-            </span>
-            <span className="block text-2xl font-bold font-mono text-zinc-900">
-              {submissions.length}
-            </span>
-            <p className="text-xs text-zinc-500">
-              Captured responses across tenants
-            </p>
-          </div>
-        </div>
+        {/* All Tenants Table (Superadmin only) */}
+        {isSuperadmin && (
+          <section
+            aria-label="All Tenants"
+            className="rounded-lg border border-zinc-200 bg-white shadow-2xs overflow-hidden"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-zinc-200 bg-zinc-50/70">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-xs uppercase tracking-wider text-zinc-700 font-semibold">
+                  All Tenants ({filteredTenants.length})
+                </span>
+                <span className="text-xs text-zinc-400">
+                  Click a row to filter forms below
+                </span>
+              </div>
+              {filteredTenant && (
+                <div className="flex items-center gap-2">
+                  <Badge variant="success">
+                    Filtering: {filteredTenant.name}
+                  </Badge>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => setSelectedTenantFilter(null)}
+                  >
+                    Clear filter
+                  </Button>
+                </div>
+              )}
+            </div>
 
-        {/* Master-Detail: Tenant List (Superadmin) + Full Selected Tenant Details */}
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
-          {/* Left Column: Client Tenant Selection List */}
-          {isSuperadmin && (
-            <div className="xl:col-span-5 space-y-3">
             {filteredTenants.length === 0 ? (
-              <div className="p-10 rounded-lg border border-dashed border-zinc-300 bg-white/60 text-center space-y-2">
+              <div className="p-8 text-center space-y-2">
                 <p className="text-sm font-medium text-zinc-800">
                   No client tenants match your search
                 </p>
@@ -246,410 +457,390 @@ export function TenantDashboardPanel({
                 </p>
               </div>
             ) : (
-              filteredTenants.map((tenant) => {
-                const isActive = tenant.id === activeTenant?.id;
-                const tenantFormsCount = forms.filter(
-                  (f) => f.clientId === tenant.id,
-                ).length;
-                const tenantSubmissionsCount = submissions.filter(
-                  (s) => s.clientId === tenant.id,
-                ).length;
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-[11px] uppercase text-zinc-500">
+                      <th className="py-2.5 px-3">Tenant</th>
+                      <th className="py-2.5 px-3">Forms</th>
+                      <th className="py-2.5 px-3">Submissions</th>
+                      <th className="py-2.5 px-3">Created</th>
+                      <th className="py-2.5 px-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100 text-xs">
+                    {filteredTenants.map((tenant) => {
+                      const isFiltered = tenant.id === effectiveTenantFilter;
+                      const tenantFormsCount =
+                        formCountByTenant.get(tenant.id) ?? 0;
+                      const tenantSubmissionsCount =
+                        submissionCountByTenant.get(tenant.id) ?? 0;
 
-                return (
-                  <div
-                    key={tenant.id}
-                    onClick={() => onSelectTenant(tenant.id, false)}
-                    role="button"
-                    tabIndex={0}
-                    aria-pressed={isActive}
-                    data-selected={isActive ? 'true' : 'false'}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        onSelectTenant(tenant.id, false);
-                      }
-                    }}
-                    className={`p-4 rounded-lg border shadow-2xs flex flex-col justify-between gap-3 transition-colors cursor-pointer ${
-                      isActive
-                        ? 'border-emerald-600 bg-emerald-50/25 ring-1 ring-emerald-600/20 dark:border-emerald-500/60 dark:bg-zinc-900 dark:ring-1 dark:ring-emerald-500/20'
-                        : 'border-zinc-200 bg-white hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700'
-                    }`}
-                  >
-                    <div className="space-y-2.5">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`inline-flex h-4 w-4 items-center justify-center rounded-full border shrink-0 transition-colors ${
-                                isActive
-                                  ? 'border-emerald-600 bg-emerald-600 text-white dark:border-emerald-500 dark:bg-emerald-500 dark:text-zinc-950'
-                                  : 'border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-950'
-                              }`}
-                              aria-hidden="true"
-                            >
-                              {isActive && (
-                                <SelectedCheckIcon className="w-2.5 h-2.5 text-white dark:text-zinc-950" />
-                              )}
-                            </span>
-                            <h3 className="font-semibold text-zinc-900 text-sm truncate">
-                              {tenant.name}
-                            </h3>
-                            {isActive && (
-                              <Badge variant="success" className="gap-1">
-                                <SelectedCheckIcon className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                                SELECTED
+                      return (
+                        <tr
+                          key={tenant.id}
+                          tabIndex={0}
+                          aria-selected={isFiltered}
+                          onClick={() => handleToggleTenantFilter(tenant.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              handleToggleTenantFilter(tenant.id);
+                            }
+                          }}
+                          className={
+                            isFiltered
+                              ? 'bg-emerald-50/50 hover:bg-emerald-50/80 text-zinc-900 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/40'
+                              : 'hover:bg-zinc-50 text-zinc-700 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500/40'
+                          }
+                        >
+                          <td className="py-2.5 px-3">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-zinc-900">
+                                {tenant.name}
+                              </span>
+                              <Badge
+                                variant={
+                                  tenant.status === 'suspended'
+                                    ? 'danger'
+                                    : 'success'
+                                }
+                              >
+                                {tenant.status === 'suspended'
+                                  ? 'SUSPENDED'
+                                  : 'ACTIVE'}
                               </Badge>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 mt-0.5 font-mono text-xs text-zinc-500">
-                            <span className="truncate">/{tenant.slug}</span>
-                            <span className="text-zinc-300">•</span>
-                            <span className="truncate">{tenant.id}</span>
-                          </div>
-                        </div>
-                        <span className="font-mono text-[11px] text-zinc-400 shrink-0">
-                          {tenant.createdAt.slice(0, 10)}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 p-2.5 rounded-md bg-zinc-50 border border-zinc-200">
-                        <div>
-                          <span className="block font-mono text-[10px] uppercase text-zinc-500">
-                            Forms
-                          </span>
-                          <span className="font-mono text-sm font-semibold text-zinc-900">
-                            {tenantFormsCount}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="block font-mono text-[10px] uppercase text-zinc-500">
-                            Submissions
-                          </span>
-                          <span className="font-mono text-sm font-semibold text-zinc-900">
-                            {tenantSubmissionsCount}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div
-                      className="flex items-center gap-2 pt-2 border-t border-zinc-100"
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => e.stopPropagation()}
-                    >
-                      <Button
-                        size="xs"
-                        variant="secondary"
-                        onClick={() => onSelectTenant(tenant.id, true)}
-                      >
-                        View Tenant Forms →
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })
+                              {isFiltered && (
+                                <Badge variant="success" className="gap-1">
+                                  <SelectedCheckIcon className="w-3 h-3 text-emerald-600" />
+                                  FILTERED
+                                </Badge>
+                              )}
+                            </div>
+                            <span className="block font-mono text-[11px] text-zinc-400 mt-0.5">
+                              /{tenant.slug}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <Badge variant="neutral">
+                              {tenantFormsCount}{' '}
+                              {tenantFormsCount === 1 ? 'form' : 'forms'}
+                            </Badge>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <Badge
+                              variant={
+                                tenantSubmissionsCount > 0
+                                  ? 'success'
+                                  : 'neutral'
+                              }
+                            >
+                              {tenantSubmissionsCount}
+                            </Badge>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-zinc-500 whitespace-nowrap">
+                            {tenant.createdAt.slice(0, 10)}
+                          </td>
+                          <td
+                            className="py-2.5 px-3 text-right whitespace-nowrap"
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                          >
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              {onCreateTenantUser &&
+                                onUpdateTenantUser &&
+                                onDeleteTenantUser && (
+                                  <Button
+                                    size="xs"
+                                    variant="secondary"
+                                    onClick={() =>
+                                      setManagingUsersTenantId(tenant.id)
+                                    }
+                                    aria-label={`Manage users and credentials for ${tenant.name}`}
+                                    title={`Manage users and credentials for ${tenant.name}`}
+                                    className="h-7 w-7 p-0"
+                                  >
+                                    <svg
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      className="h-3.5 w-3.5"
+                                      aria-hidden="true"
+                                    >
+                                      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                                      <circle cx="9" cy="7" r="4" />
+                                      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                                      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                                    </svg>
+                                  </Button>
+                                )}
+                              <Button
+                                size="xs"
+                                variant="secondary"
+                                onClick={() => setEditingTenant(tenant)}
+                                aria-label={`Edit ${tenant.name}`}
+                                title={`Edit ${tenant.name}`}
+                                className="h-7 w-7 p-0"
+                              >
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  className="h-3.5 w-3.5"
+                                  aria-hidden="true"
+                                >
+                                  <path d="M12 20h9" />
+                                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                </svg>
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="secondary"
+                                onClick={() => onSelectTenant(tenant.id, true)}
+                                aria-label={`Open ${tenant.name} in All Forms`}
+                                title={`Open ${tenant.name} in All Forms`}
+                                className="h-7 w-7 p-0"
+                              >
+                                <svg
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  className="h-3.5 w-3.5"
+                                  aria-hidden="true"
+                                >
+                                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                  <polyline points="14 2 14 8 20 8" />
+                                  <line x1="16" y1="13" x2="8" y2="13" />
+                                  <line x1="16" y1="17" x2="8" y2="17" />
+                                </svg>
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
+          </section>
+        )}
+
+        {/* All Forms Table */}
+        <section
+          aria-label="All Forms"
+          className="rounded-lg border border-zinc-200 bg-white shadow-2xs overflow-hidden"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-zinc-200 bg-zinc-50/70">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-xs uppercase tracking-wider text-zinc-700 font-semibold">
+                {filteredTenant
+                  ? `${filteredTenant.name} Forms (${filteredForms.length})`
+                  : `All Forms (${filteredForms.length})`}
+              </span>
+              <span className="text-xs text-zinc-400">
+                Use action icons to edit, preview, or view submissions
+              </span>
             </div>
-          )}
+            {filteredTenant && (
+              <Button
+                size="xs"
+                variant="secondary"
+                onClick={() => setSelectedTenantFilter(null)}
+              >
+                Show All Forms
+              </Button>
+            )}
+          </div>
 
-          {/* Right Column: Full Selected Tenant Details */}
-          {activeTenant && (
-            <section
-              aria-label="Selected Tenant Details"
-              className={`${
-                isSuperadmin ? 'xl:col-span-7' : 'xl:col-span-12'
-              } rounded-lg border border-zinc-200 bg-white shadow-2xs p-5 space-y-5`}
-            >
-              {/* Tenant Detail Header */}
-              <div className="flex flex-wrap items-start justify-between gap-3 pb-4 border-b border-zinc-200">
-                <div className="space-y-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant="neutral">TENANT DETAILS</Badge>
-                    <Badge variant="success" className="gap-1">
-                      <SelectedCheckIcon className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                      SELECTED
-                    </Badge>
-                  </div>
-                  <h2 className="text-base font-semibold text-zinc-900 truncate">
-                    {activeTenant.name}
-                  </h2>
-                  <p className="font-mono text-xs text-zinc-500">
-                    {activeTenant.id} • /{activeTenant.slug}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  {isSuperadmin && (
-                    <Button
-                      size="xs"
-                      variant="secondary"
-                      onClick={() => setEditingTenant(activeTenant)}
-                    >
-                      Edit Details
-                    </Button>
-                  )}
+          {filteredForms.length === 0 ? (
+            <div className="p-8 text-center space-y-2">
+              <p className="text-sm font-medium text-zinc-800">
+                {normalizedQuery || filteredTenant
+                  ? 'No forms match your current filter'
+                  : 'No forms configured yet'}
+              </p>
+              <p className="text-xs text-zinc-500">
+                {normalizedQuery || filteredTenant
+                  ? 'Try clearing your search or tenant filter, or create a new form.'
+                  : 'Create your first form to open the builder, preview, or collect submissions.'}
+              </p>
+              <div className="flex items-center justify-center gap-2 pt-1">
+                {(normalizedQuery || filteredTenant) && (
                   <Button
                     size="xs"
                     variant="secondary"
-                    onClick={() => onSelectTenant(activeTenant.id, true)}
-                  >
-                    Filter in All Forms →
-                  </Button>
-                  <Button
-                    size="xs"
-                    variant="primary"
                     onClick={() => {
-                      setNewFormTitle('');
-                      setShowCreateFormModal(true);
+                      setSearchQuery('');
+                      setSelectedTenantFilter(null);
                     }}
                   >
-                    + New Form
+                    Reset Filters
                   </Button>
-                </div>
+                )}
+                <Button
+                  size="xs"
+                  variant="primary"
+                  onClick={handleOpenCreateFormModal}
+                  disabled={tenants.length === 0}
+                >
+                  + New Form
+                </Button>
               </div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-[11px] uppercase text-zinc-500">
+                    <th className="py-2.5 px-3">Form</th>
+                    {isSuperadmin && <th className="py-2.5 px-3">Tenant</th>}
+                    <th className="py-2.5 px-3">Fields</th>
+                    <th className="py-2.5 px-3">Submissions</th>
+                    <th className="py-2.5 px-3">Updated</th>
+                    <th className="py-2.5 px-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 text-xs">
+                  {filteredForms.map((form) => {
+                    const tenant = tenantMap.get(form.clientId);
+                    const formSubCount =
+                      submissionCountByFormKey.get(
+                        `${form.clientId}::${form.id}`,
+                      ) ?? 0;
 
-              {/* Complete Tenant Metadata Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                <div className="p-3 rounded-md border border-zinc-200 bg-zinc-50/70 space-y-1">
-                  <span className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                    Tenant ID
-                  </span>
-                  <span className="block font-mono text-xs text-zinc-900 font-medium break-all">
-                    {activeTenant.id}
-                  </span>
-                </div>
-
-                <div className="p-3 rounded-md border border-zinc-200 bg-zinc-50/70 space-y-1">
-                  <span className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                    Workspace Slug
-                  </span>
-                  <span className="block font-mono text-xs text-zinc-900 font-medium">
-                    /{activeTenant.slug}
-                  </span>
-                </div>
-
-                <div className="p-3 rounded-md border border-zinc-200 bg-zinc-50/70 space-y-1">
-                  <span className="block font-mono text-[10px] uppercase tracking-wider text-zinc-500">
-                    Created At (UTC)
-                  </span>
-                  <span className="block font-mono text-xs text-zinc-900 font-medium">
-                    {formatIsoTimestamp(activeTenant.createdAt)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Tenant Activity & Usage Summary */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="p-3 rounded-md border border-zinc-200 bg-white space-y-0.5">
-                  <span className="block font-mono text-[10px] uppercase text-zinc-500">
-                    Forms
-                  </span>
-                  <span className="block font-mono text-lg font-bold text-zinc-900">
-                    {activeTenantForms.length}
-                  </span>
-                </div>
-                <div className="p-3 rounded-md border border-zinc-200 bg-white space-y-0.5">
-                  <span className="block font-mono text-[10px] uppercase text-zinc-500">
-                    Total Fields
-                  </span>
-                  <span className="block font-mono text-lg font-bold text-zinc-900">
-                    {activeTenantTotalFields}
-                  </span>
-                </div>
-                <div className="p-3 rounded-md border border-zinc-200 bg-white space-y-0.5">
-                  <span className="block font-mono text-[10px] uppercase text-zinc-500">
-                    Submissions
-                  </span>
-                  <span className="block font-mono text-lg font-bold text-zinc-900">
-                    {activeTenantSubmissions.length}
-                  </span>
-                </div>
-                <div className="p-3 rounded-md border border-zinc-200 bg-white space-y-0.5">
-                  <span className="block font-mono text-[10px] uppercase text-zinc-500">
-                    Last Activity
-                  </span>
-                  <span className="block font-mono text-xs font-semibold text-zinc-900 pt-1">
-                    {latestSubmissionAt
-                      ? latestSubmissionAt.slice(0, 10)
-                      : latestFormUpdatedAt
-                        ? latestFormUpdatedAt.slice(0, 10)
-                        : '—'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Tenant Forms Breakdown */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-mono text-xs uppercase tracking-wider text-zinc-600 font-semibold">
-                    Configured Forms ({activeTenantForms.length})
-                  </span>
-                  {latestFormUpdatedAt && (
-                    <span className="font-mono text-[11px] text-zinc-400">
-                      Last schema update: {formatIsoTimestamp(latestFormUpdatedAt)}
-                    </span>
-                  )}
-                </div>
-
-                {activeTenantForms.length === 0 ? (
-                  <div className="p-6 rounded-md border border-dashed border-zinc-300 bg-zinc-50/50 text-center space-y-2">
-                    <p className="text-xs font-medium text-zinc-700">
-                      No forms configured for {activeTenant.name}
-                    </p>
-                    <Button
-                      size="xs"
-                      variant="primary"
-                      onClick={() => {
-                        setNewFormTitle('');
-                        setShowCreateFormModal(true);
-                      }}
-                    >
-                      + Create First Form
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="rounded-md border border-zinc-200 overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-[11px] uppercase text-zinc-500">
-                            <th className="py-2 px-3">Form</th>
-                            <th className="py-2 px-3">Route</th>
-                            <th className="py-2 px-3">Fields</th>
-                            <th className="py-2 px-3">Submissions</th>
-                            <th className="py-2 px-3">Updated</th>
-                            <th className="py-2 px-3 text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-zinc-100 text-xs">
-                          {activeTenantForms.map((form) => {
-                            const isCurrentForm = form.id === activeFormId;
-                            const formSubCount = activeTenantSubmissions.filter(
-                              (s) => s.formId === form.id,
-                            ).length;
-
-                            return (
-                              <tr
-                                key={form.id}
-                                className={
-                                  isCurrentForm
-                                    ? 'bg-emerald-50/50 text-zinc-900'
-                                    : 'hover:bg-zinc-50 text-zinc-700'
-                                }
+                    return (
+                      <tr
+                        key={form.id}
+                        className="hover:bg-zinc-50 text-zinc-700 transition-colors"
+                      >
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-zinc-900">
+                              {form.title}
+                            </span>
+                          </div>
+                          {form.description ? (
+                            <p className="text-xs text-zinc-500 mt-0.5 line-clamp-1 max-w-xs">
+                              {form.description}
+                            </p>
+                          ) : (
+                            <span className="font-mono text-[11px] text-zinc-400">
+                              /{form.slug}
+                            </span>
+                          )}
+                        </td>
+                        {isSuperadmin && (
+                          <td className="py-2.5 px-3">
+                            <span className="font-medium text-zinc-800">
+                              {tenant?.name ?? form.clientId}
+                            </span>
+                          </td>
+                        )}
+                        <td className="py-2.5 px-3">
+                          <Badge variant="neutral">
+                            {form.fields.length}{' '}
+                            {form.fields.length === 1 ? 'field' : 'fields'}
+                          </Badge>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <Badge
+                            variant={formSubCount > 0 ? 'success' : 'neutral'}
+                          >
+                            {formSubCount}
+                          </Badge>
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-zinc-500 whitespace-nowrap">
+                          {formatIsoTimestamp(form.updatedAt)}
+                        </td>
+                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center justify-end gap-1.5">
+                            <Button
+                              size="xs"
+                              variant="secondary"
+                              onClick={() => onEditForm(form)}
+                              aria-label={`Edit ${form.title}`}
+                              title={`Edit ${form.title}`}
+                              className="h-7 w-7 p-0"
+                            >
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="h-3.5 w-3.5"
+                                aria-hidden="true"
                               >
-                                <td className="py-2.5 px-3">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-medium text-zinc-900">
-                                      {form.title}
-                                    </span>
-                                    {isCurrentForm && (
-                                      <Badge variant="success">OPEN</Badge>
-                                    )}
-                                  </div>
-                                  <span className="font-mono text-[11px] text-zinc-400">
-                                    {form.id}
-                                  </span>
-                                </td>
-                                <td className="py-2.5 px-3 font-mono text-zinc-600">
-                                  /{form.slug}
-                                </td>
-                                <td className="py-2.5 px-3">
-                                  <Badge variant="neutral">
-                                    {form.fields.length}
-                                  </Badge>
-                                </td>
-                                <td className="py-2.5 px-3">
-                                  <Badge
-                                    variant={
-                                      formSubCount > 0 ? 'success' : 'neutral'
-                                    }
-                                  >
-                                    {formSubCount}
-                                  </Badge>
-                                </td>
-                                <td className="py-2.5 px-3 font-mono text-zinc-500 whitespace-nowrap">
-                                  {formatIsoTimestamp(form.updatedAt)}
-                                </td>
-                                <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                                  <div className="inline-flex items-center gap-1">
-                                    <Button
-                                      size="xs"
-                                      variant="secondary"
-                                      onClick={() => onViewForm(form)}
-                                    >
-                                      Preview
-                                    </Button>
-                                    <Button
-                                      size="xs"
-                                      variant="secondary"
-                                      onClick={() => onEditForm(form)}
-                                    >
-                                      Edit
-                                    </Button>
-                                    <Button
-                                      size="xs"
-                                      variant="ghost"
-                                      onClick={() => onViewFormSubmissions(form)}
-                                    >
-                                      Subs
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Recent Submissions Snapshot */}
-              <div className="space-y-2">
-                <span className="block font-mono text-xs uppercase tracking-wider text-zinc-600 font-semibold">
-                  Recent Submissions ({activeTenantSubmissions.length})
-                </span>
-                {activeTenantSubmissions.length === 0 ? (
-                  <p className="text-xs text-zinc-500 p-3 rounded-md border border-zinc-200 bg-zinc-50/50">
-                    No submissions captured yet for {activeTenant.name}.
-                  </p>
-                ) : (
-                  <div className="rounded-md border border-zinc-200 overflow-hidden">
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-[11px] uppercase text-zinc-500">
-                          <th className="py-2 px-3">Record ID</th>
-                          <th className="py-2 px-3">Form</th>
-                          <th className="py-2 px-3">Submitted At</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-100 text-xs">
-                        {activeTenantSubmissions.slice(0, 5).map((sub) => {
-                          const parentForm = activeTenantFormMap.get(sub.formId);
-                          return (
-                            <tr key={sub.id} className="hover:bg-zinc-50">
-                              <td className="py-2 px-3 font-mono text-zinc-900">
-                                {sub.id}
-                              </td>
-                              <td className="py-2 px-3 text-zinc-700">
-                                {parentForm?.title ?? sub.formId}
-                              </td>
-                              <td className="py-2 px-3 font-mono text-zinc-500 whitespace-nowrap">
-                                {formatIsoTimestamp(sub.submittedAt)}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </section>
+                                <path d="M12 20h9" />
+                                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                              </svg>
+                            </Button>
+                            <Button
+                              size="xs"
+                              variant="secondary"
+                              onClick={() => onViewForm(form)}
+                              aria-label={`Preview ${form.title}`}
+                              title={`Preview ${form.title}`}
+                              className="h-7 w-7 p-0"
+                            >
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="h-3.5 w-3.5"
+                                aria-hidden="true"
+                              >
+                                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                                <circle cx="12" cy="12" r="3" />
+                              </svg>
+                            </Button>
+                            <Button
+                              size="xs"
+                              variant="secondary"
+                              onClick={() => onViewFormSubmissions(form)}
+                              aria-label={`Submissions for ${form.title}`}
+                              title={`Submissions for ${form.title}`}
+                              className="h-7 w-7 p-0"
+                            >
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="h-3.5 w-3.5"
+                                aria-hidden="true"
+                              >
+                                <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+                                <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+                              </svg>
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           )}
-        </div>
-      </div>
+        </section>
+      </PageContainer>
 
       {/* Create Tenant Modal */}
       <CreateTenantModal
@@ -660,8 +851,8 @@ export function TenantDashboardPanel({
         onCreateTenant={onCreateTenant}
       />
 
-      {/* Create Form for Active Tenant Modal */}
-      {showCreateFormModal && activeTenant && (
+      {/* Create Form Modal */}
+      {showCreateFormModal && (
         <div
           className="fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4"
           onClick={() => setShowCreateFormModal(false)}
@@ -676,8 +867,29 @@ export function TenantDashboardPanel({
               <span className="font-mono text-xs uppercase text-zinc-700 font-semibold">
                 Create Form
               </span>
-              <Badge variant="neutral">{activeTenant.name}</Badge>
+              {!isSuperadmin && activeTenant && (
+                <Badge variant="neutral">{activeTenant.name}</Badge>
+              )}
             </div>
+            {isSuperadmin && (
+              <div className="space-y-1.5">
+                <Label htmlFor="dashboard_new_form_tenant">Client Tenant</Label>
+                <Select
+                  id="dashboard_new_form_tenant"
+                  menuHeading="Select Client Tenant"
+                  value={newFormTenantId}
+                  onValueChange={setNewFormTenantId}
+                  options={tenants.map((t) => {
+                    const count = formCountByTenant.get(t.id) ?? 0;
+                    return {
+                      value: t.id,
+                      label: t.name,
+                      meta: `${count} ${count === 1 ? 'form' : 'forms'}`,
+                    };
+                  })}
+                />
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="dashboard_new_form_title">Form Title</Label>
               <Input
@@ -722,7 +934,31 @@ export function TenantDashboardPanel({
         idPrefix="dashboard"
         onClose={() => setEditingTenant(null)}
         onUpdateTenant={onUpdateTenant}
+        onManageUsers={
+          onCreateTenantUser && onUpdateTenantUser && onDeleteTenantUser
+            ? (target) => {
+                setEditingTenant(null);
+                setManagingUsersTenantId(target.id);
+              }
+            : undefined
+        }
       />
+
+      {/* Tenant Users & Credentials Modal */}
+      {managingUsersTenant &&
+        onCreateTenantUser &&
+        onUpdateTenantUser &&
+        onDeleteTenantUser && (
+          <TenantUsersModal
+            tenant={managingUsersTenant}
+            users={users}
+            onClose={() => setManagingUsersTenantId(null)}
+            onCreateUser={onCreateTenantUser}
+            onUpdateUser={onUpdateTenantUser}
+            onDeleteUser={onDeleteTenantUser}
+            onResetCredentials={onResetTenantUserCredentials}
+          />
+        )}
     </main>
   );
 }
@@ -735,13 +971,6 @@ export interface SubmissionsPanelProps {
   onClearFormSubmissions: () => void;
 }
 
-function formatCellValue(value: unknown): string {
-  if (value === undefined || value === null || value === '') return '—';
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
-
 export function SubmissionsPanel({
   tenant,
   schema,
@@ -752,6 +981,8 @@ export function SubmissionsPanel({
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(
     submissions[0]?.id ?? null,
   );
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
 
   const dataFields = schema.fields.filter(
     (f) => f.type !== 'section' && f.type !== 'grid',
@@ -808,24 +1039,19 @@ export function SubmissionsPanel({
       aria-label="Tenant Submissions"
       className="flex-1 overflow-y-auto p-6 bg-[#f4f5f7]"
     >
-      <div className="w-full space-y-4">
+      <PageContainer>
         {/* Tenant Scope & Export Bar */}
         <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <Badge variant="neutral">TENANT ISOLATION</Badge>
-              <span className="font-mono text-xs text-zinc-700">
-                {tenant.name} ({tenant.id})
-              </span>
-              <span className="text-zinc-300">•</span>
-              <span className="font-mono text-xs text-zinc-500">
-                /{tenant.slug}
+              <Badge variant="neutral">{tenant.name}</Badge>
+              <span className="text-xs font-medium text-zinc-900">
+                {schema.title}
               </span>
             </div>
             <p className="text-xs text-zinc-500">
-              Showing {submissions.length}{' '}
-              {submissions.length === 1 ? 'submission' : 'submissions'} scoped
-              to <span className="text-zinc-900 font-medium">{schema.title}</span>
+              {submissions.length}{' '}
+              {submissions.length === 1 ? 'submission' : 'submissions'} recorded
             </p>
           </div>
 
@@ -846,14 +1072,36 @@ export function SubmissionsPanel({
             >
               Export JSON
             </Button>
-            <Button
-              size="xs"
-              variant="danger"
-              disabled={submissions.length === 0}
-              onClick={onClearFormSubmissions}
-            >
-              Clear All
-            </Button>
+            {confirmClearAll ? (
+              <div className="inline-flex items-center gap-1">
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => setConfirmClearAll(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="xs"
+                  variant="danger"
+                  onClick={() => {
+                    setConfirmClearAll(false);
+                    onClearFormSubmissions();
+                  }}
+                >
+                  Confirm Clear All
+                </Button>
+              </div>
+            ) : (
+              <Button
+                size="xs"
+                variant="danger"
+                disabled={submissions.length === 0}
+                onClick={() => setConfirmClearAll(true)}
+              >
+                Clear All
+              </Button>
+            )}
           </div>
         </div>
 
@@ -863,8 +1111,7 @@ export function SubmissionsPanel({
               No submissions recorded for {schema.title}
             </p>
             <p className="text-xs text-zinc-500">
-              Switch to the Preview tab and submit the form to store a tenant
-              submission record.
+              Switch to Live Preview and submit the form to record a submission.
             </p>
           </div>
         ) : (
@@ -875,7 +1122,7 @@ export function SubmissionsPanel({
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-xs uppercase text-zinc-600">
-                      <th className="py-2.5 px-3">Record ID</th>
+                      <th className="py-2.5 px-3">#</th>
                       <th className="py-2.5 px-3">Submitted At</th>
                       {dataFields.slice(0, 3).map((field) => (
                         <th key={field.id} className="py-2.5 px-3 truncate">
@@ -886,8 +1133,9 @@ export function SubmissionsPanel({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 text-xs">
-                    {submissions.map((sub) => {
+                    {submissions.map((sub, idx) => {
                       const isSelected = selectedRecord?.id === sub.id;
+                      const isConfirming = confirmDeleteId === sub.id;
                       return (
                         <tr
                           key={sub.id}
@@ -898,31 +1146,53 @@ export function SubmissionsPanel({
                               : 'hover:bg-zinc-50 text-zinc-700 cursor-pointer'
                           }
                         >
-                          <td className="py-2.5 px-3 font-mono text-zinc-900 font-medium">
-                            {sub.id}
-                          </td>
                           <td className="py-2.5 px-3 font-mono text-zinc-500">
-                            {sub.submittedAt.slice(0, 19).replace('T', ' ')}
+                            {idx + 1}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-zinc-500 whitespace-nowrap">
+                            {formatIsoTimestamp(sub.submittedAt)}
                           </td>
                           {dataFields.slice(0, 3).map((field) => (
                             <td
                               key={field.id}
                               className="py-2.5 px-3 max-w-[160px] truncate"
                             >
-                              {formatCellValue(sub.values[field.id])}
+                              {formatSubmissionValue(sub.values[field.id])}
                             </td>
                           ))}
                           <td
-                            className="py-2.5 px-3 text-right"
+                            className="py-2.5 px-3 text-right whitespace-nowrap"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <Button
-                              size="xs"
-                              variant="danger"
-                              onClick={() => onDeleteSubmission(sub.id)}
-                            >
-                              Del
-                            </Button>
+                            {isConfirming ? (
+                              <div className="inline-flex items-center gap-1">
+                                <Button
+                                  size="xs"
+                                  variant="ghost"
+                                  onClick={() => setConfirmDeleteId(null)}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  size="xs"
+                                  variant="danger"
+                                  onClick={() => {
+                                    setConfirmDeleteId(null);
+                                    onDeleteSubmission(sub.id);
+                                  }}
+                                >
+                                  Confirm
+                                </Button>
+                              </div>
+                            ) : (
+                              <Button
+                                size="xs"
+                                variant="danger"
+                                onClick={() => setConfirmDeleteId(sub.id)}
+                              >
+                                Delete
+                              </Button>
+                            )}
                           </td>
                         </tr>
                       );
@@ -930,23 +1200,28 @@ export function SubmissionsPanel({
                   </tbody>
                 </table>
               </div>
+              {dataFields.length > 3 && (
+                <div className="px-3 py-2 border-t border-zinc-200 bg-zinc-50/60 text-[11px] text-zinc-500">
+                  Showing first 3 of {dataFields.length} fields — select a row to view all responses.
+                </div>
+              )}
             </div>
 
             {/* Selected Record Inspector */}
             {selectedRecord && (
               <aside
-                aria-label="Submission Payload Detail"
+                aria-label="Submission Details"
                 className="p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs space-y-3"
               >
                 <div className="flex items-center justify-between border-b border-zinc-200 pb-2.5">
                   <div>
-                    <Badge variant="success">RECORD PAYLOAD</Badge>
-                    <p className="font-mono text-xs text-zinc-500 mt-1">
-                      {selectedRecord.id}
+                    <Badge variant="success">RESPONSE DETAILS</Badge>
+                    <p className="font-mono text-[11px] text-zinc-500 mt-1">
+                      {formatIsoTimestamp(selectedRecord.submittedAt)}
                     </p>
                   </div>
-                  <span className="font-mono text-xs text-zinc-500">
-                    /{tenant.slug}
+                  <span className="text-xs text-zinc-500">
+                    {tenant.name}
                   </span>
                 </div>
 
@@ -956,29 +1231,20 @@ export function SubmissionsPanel({
                       key={field.id}
                       className="p-2.5 rounded-md border border-zinc-200 bg-zinc-50/50 space-y-0.5"
                     >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-zinc-700">
-                          {field.label}
-                        </span>
-                        <span className="font-mono text-xs text-zinc-400">
-                          {field.id}
-                        </span>
-                      </div>
-                      <p className="font-mono text-xs text-zinc-900 break-all">
-                        {formatCellValue(selectedRecord.values[field.id])}
+                      <span className="text-xs font-medium text-zinc-700 block">
+                        {field.label}
+                      </span>
+                      <p className="text-xs text-zinc-900 break-all">
+                        {formatSubmissionValue(selectedRecord.values[field.id])}
                       </p>
                     </div>
                   ))}
                 </div>
-
-                <pre className="p-3 rounded-md bg-zinc-50 border border-zinc-200 font-mono text-xs text-zinc-800 overflow-x-auto">
-                  {JSON.stringify(selectedRecord, null, 2)}
-                </pre>
               </aside>
             )}
           </div>
         )}
-      </div>
+      </PageContainer>
     </main>
   );
 }
@@ -994,11 +1260,7 @@ export interface FormsDirectoryPanelProps {
   isSuperadmin?: boolean;
   tenantFilter?: string;
   onTenantFilterChange?: (tenantId: string) => void;
-  isActionModalOpen?: boolean;
-  onViewForm: (form: FormSchema) => void;
-  onEditForm: (form: FormSchema) => void;
-  onViewFormSubmissions: (form: FormSchema) => void;
-  onDeleteForm: (formId: string) => void;
+  onOpenForm: (form: FormSchema) => void;
   onCreateFormForTenant: (tenantId: string, title: string) => void;
 }
 
@@ -1011,11 +1273,7 @@ export function FormsDirectoryPanel({
   isSuperadmin = true,
   tenantFilter: controlledTenantFilter,
   onTenantFilterChange,
-  isActionModalOpen = false,
-  onViewForm,
-  onEditForm,
-  onViewFormSubmissions,
-  onDeleteForm,
+  onOpenForm,
   onCreateFormForTenant,
 }: FormsDirectoryPanelProps) {
   const [internalTenantFilter, setInternalTenantFilter] =
@@ -1033,7 +1291,6 @@ export function FormsDirectoryPanel({
   };
 
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [copiedFormId, setCopiedFormId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
   const [newFormTenantId, setNewFormTenantId] =
     useState<string>(activeTenantId);
@@ -1060,8 +1317,7 @@ export function FormsDirectoryPanel({
       if (
         (event.metaKey || event.ctrlKey) &&
         event.key.toLowerCase() === 'k' &&
-        !showCreateModal &&
-        !isActionModalOpen
+        !showCreateModal
       ) {
         event.preventDefault();
         searchInputRef.current?.focus();
@@ -1072,7 +1328,7 @@ export function FormsDirectoryPanel({
     return () => {
       window.removeEventListener('keydown', handleShortcut);
     };
-  }, [showCreateModal, isActionModalOpen]);
+  }, [showCreateModal]);
 
   const tenantMap = new Map<string, ClientTenant>(
     tenants.map((t) => [t.id, t]),
@@ -1166,7 +1422,6 @@ export function FormsDirectoryPanel({
     ...tenants.map((t) => ({
       value: t.id,
       label: t.name,
-      description: `/${t.slug}`,
       meta: String(forms.filter((f) => f.clientId === t.id).length),
     })),
   ];
@@ -1186,11 +1441,8 @@ export function FormsDirectoryPanel({
       return {
         value: f.id,
         label: f.title,
-        description:
-          tenantFilter === 'ALL'
-            ? `${tenant?.name ?? f.clientId} · /${f.slug}`
-            : `/${f.slug}`,
-        meta: `${f.fields.length}f`,
+        description: tenantFilter === 'ALL' ? (tenant?.name ?? undefined) : undefined,
+        meta: `${f.fields.length} ${f.fields.length === 1 ? 'field' : 'fields'}`,
       };
     }),
   ];
@@ -1245,7 +1497,7 @@ export function FormsDirectoryPanel({
       aria-label="Forms Directory"
       className="flex-1 overflow-y-auto p-6 bg-[#f4f5f7]"
     >
-      <div className="w-full space-y-4">
+      <PageContainer>
         {/* Page Header Row */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
           <div className="space-y-1.5">
@@ -1270,8 +1522,7 @@ export function FormsDirectoryPanel({
             </h1>
             <p className="text-xs text-zinc-500">
               Showing forms across all client tenants. Filter by tenant or
-              specific form, or open any form to preview, edit, view
-              submissions, or delete.
+              specific form, or click any row to open its form management page.
             </p>
           </div>
 
@@ -1314,7 +1565,11 @@ export function FormsDirectoryPanel({
                 aria-label="Search forms"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Filter forms by title, /slug, or tenant..."
+                placeholder={
+                  isSuperadmin
+                    ? 'Filter forms by title or tenant...'
+                    : 'Filter forms by title...'
+                }
                 className="h-9 w-full pl-9 pr-14 bg-zinc-50 focus:bg-white text-xs"
               />
               {searchQuery ? (
@@ -1524,11 +1779,9 @@ export function FormsDirectoryPanel({
                   <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-xs uppercase text-zinc-600">
                     <th className="py-2.5 px-3">Form Title</th>
                     <th className="py-2.5 px-3">Tenant</th>
-                    <th className="py-2.5 px-3">Route</th>
                     <th className="py-2.5 px-3">Fields</th>
                     <th className="py-2.5 px-3">Submissions</th>
                     <th className="py-2.5 px-3">Updated</th>
-                    <th className="py-2.5 px-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 text-xs">
@@ -1544,11 +1797,11 @@ export function FormsDirectoryPanel({
                       <tr
                         key={form.id}
                         tabIndex={0}
-                        onClick={() => onEditForm(form)}
+                        onClick={() => onOpenForm(form)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
-                            onEditForm(form);
+                            onOpenForm(form);
                           }
                         }}
                         className={
@@ -1574,19 +1827,8 @@ export function FormsDirectoryPanel({
                         </td>
 
                         <td className="py-3 px-3">
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-zinc-800 font-medium">
-                              {tenant?.name ?? form.clientId}
-                            </span>
-                            <span className="font-mono text-xs text-zinc-500">
-                              {tenant ? `/${tenant.slug}` : '—'}
-                            </span>
-                          </div>
-                        </td>
-
-                        <td className="py-3 px-3">
-                          <span className="inline-flex items-center rounded border border-zinc-200 bg-zinc-50 px-2 py-0.5 font-mono text-xs text-zinc-700">
-                            /{form.slug}
+                          <span className="text-zinc-800 font-medium">
+                            {tenant?.name ?? form.clientId}
                           </span>
                         </td>
 
@@ -1597,151 +1839,18 @@ export function FormsDirectoryPanel({
                           </Badge>
                         </td>
 
-                        <td
-                          className="py-3 px-3"
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => onViewFormSubmissions(form)}
-                            title={`View submissions for ${form.title}`}
-                            aria-label={`View ${formSubmissionsCount} submissions for ${form.title}`}
-                            className="cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
+                        <td className="py-3 px-3">
+                          <Badge
+                            variant={
+                              formSubmissionsCount > 0 ? 'success' : 'neutral'
+                            }
                           >
-                            <Badge
-                              variant={
-                                formSubmissionsCount > 0 ? 'success' : 'neutral'
-                              }
-                            >
-                              {formSubmissionsCount}
-                            </Badge>
-                          </button>
+                            {formSubmissionsCount}
+                          </Badge>
                         </td>
 
                         <td className="py-3 px-3 font-mono text-zinc-500">
                           {form.updatedAt.slice(0, 16).replace('T', ' ')}
-                        </td>
-
-                        <td
-                          className="py-3 px-3 text-right"
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
-                        >
-                          <div className="inline-flex items-center justify-end gap-1.5">
-                            {tenant && (
-                              <Button
-                                size="xs"
-                                variant="secondary"
-                                onClick={() => {
-                                  const publicUrl = `${window.location.origin}/f/${tenant.slug}/${form.slug}`;
-                                  void navigator.clipboard
-                                    ?.writeText(publicUrl)
-                                    .then(() => {
-                                      setCopiedFormId(form.id);
-                                      window.setTimeout(
-                                        () => setCopiedFormId(null),
-                                        1800,
-                                      );
-                                    });
-                                }}
-                                title={`Copy public form URL: /f/${tenant.slug}/${form.slug}`}
-                              >
-                                {copiedFormId === form.id ? 'Copied' : 'Share'}
-                              </Button>
-                            )}
-                            <Button
-                              size="xs"
-                              variant="secondary"
-                              onClick={() => onViewForm(form)}
-                              aria-label={`View ${form.title}`}
-                              title={`Open ${form.title} in Live Preview`}
-                              className="h-7 w-7 p-0"
-                            >
-                              <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="h-3.5 w-3.5"
-                                aria-hidden="true"
-                              >
-                                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-                                <circle cx="12" cy="12" r="3" />
-                              </svg>
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="secondary"
-                              onClick={() => onEditForm(form)}
-                              aria-label={`Edit ${form.title}`}
-                              title={`Edit ${form.title} in Builder`}
-                              className="h-7 w-7 p-0"
-                            >
-                              <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="h-3.5 w-3.5"
-                                aria-hidden="true"
-                              >
-                                <path d="M12 20h9" />
-                                <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                              </svg>
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="secondary"
-                              onClick={() => onViewFormSubmissions(form)}
-                              aria-label={`Submissions for ${form.title}`}
-                              title={`View submissions for ${form.title}`}
-                              className="h-7 w-7 p-0"
-                            >
-                              <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="h-3.5 w-3.5"
-                                aria-hidden="true"
-                              >
-                                <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
-                                <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
-                              </svg>
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="danger"
-                              onClick={() => onDeleteForm(form.id)}
-                              aria-label={`Delete ${form.title}`}
-                              title={`Delete ${form.title}`}
-                              className="h-7 w-7 p-0"
-                            >
-                              <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                className="h-3.5 w-3.5"
-                                aria-hidden="true"
-                              >
-                                <path d="M3 6h18" />
-                                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-                                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-                                <line x1="10" x2="10" y1="11" y2="17" />
-                                <line x1="14" x2="14" y1="11" y2="17" />
-                              </svg>
-                            </Button>
-                          </div>
                         </td>
                       </tr>
                     );
@@ -1771,7 +1880,7 @@ export function FormsDirectoryPanel({
             </div>
           </div>
         )}
-      </div>
+      </PageContainer>
 
       {/* Create Form Modal */}
       {showCreateModal && (
@@ -1789,7 +1898,6 @@ export function FormsDirectoryPanel({
               <span className="font-mono text-xs uppercase text-zinc-700 font-semibold">
                 Create New Form
               </span>
-              <Badge variant="neutral">MULTI-TENANT</Badge>
             </div>
             {isSuperadmin && (
               <div className="space-y-1.5">
@@ -1799,12 +1907,14 @@ export function FormsDirectoryPanel({
                   menuHeading="Select Client Tenant"
                   value={newFormTenantId}
                   onValueChange={setNewFormTenantId}
-                  options={tenants.map((t) => ({
-                    value: t.id,
-                    label: t.name,
-                    description: `/${t.slug}`,
-                    meta: `${forms.filter((f) => f.clientId === t.id).length}f`,
-                  }))}
+                  options={tenants.map((t) => {
+                    const count = forms.filter((f) => f.clientId === t.id).length;
+                    return {
+                      value: t.id,
+                      label: t.name,
+                      meta: `${count} ${count === 1 ? 'form' : 'forms'}`,
+                    };
+                  })}
                 />
               </div>
             )}

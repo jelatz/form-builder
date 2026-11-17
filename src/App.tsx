@@ -42,6 +42,7 @@ import {
   apiDeleteTenant,
   apiDeleteTenantUser,
   apiFetchPublicForm,
+  apiResetTenantUserCredentials,
   apiSubmitPublicForm,
   apiUpdateForm,
   apiUpdateTenant,
@@ -50,6 +51,7 @@ import {
   fetchTenantSnapshot,
   filterFormsByTenant,
   filterSubmissionsByTenantForm,
+  type ResetUserCredentialsResponse,
 } from './features/tenant-submissions/storage';
 import { createDefaultField } from './fields/registry';
 import {
@@ -1010,6 +1012,17 @@ export default function App() {
   const handleDeleteTenantUser = async (userId: string) => {
     await apiDeleteTenantUser(userId);
     setTenantUsers((prev) => prev.filter((u) => u.id !== userId));
+  };
+
+  const handleResetTenantUserCredentials = async (
+    userId: string,
+    input: { password?: string; email?: string },
+  ): Promise<ResetUserCredentialsResponse> => {
+    const result = await apiResetTenantUserCredentials(userId, input);
+    setTenantUsers((prev) =>
+      prev.map((u) => (u.id === result.user.id ? result.user : u)),
+    );
+    return result;
   };
 
   const handleCreateFormForTenant = (targetTenantId: string, title: string) => {
@@ -2139,11 +2152,16 @@ export default function App() {
               tenants={tenants}
               forms={forms}
               submissions={submissions}
+              users={tenantUsers}
               activeTenantId={activeTenant.id}
               isSuperadmin={userIsSuperadmin}
               onSelectTenant={handleSelectTenant}
               onCreateTenant={handleCreateTenant}
               onUpdateTenant={handleUpdateTenant}
+              onCreateTenantUser={handleCreateTenantUser}
+              onUpdateTenantUser={handleUpdateTenantUser}
+              onDeleteTenantUser={handleDeleteTenantUser}
+              onResetTenantUserCredentials={handleResetTenantUserCredentials}
               onEditForm={handleEditFormFromDirectory}
               onViewForm={handleViewFormFromDirectory}
               onViewFormSubmissions={handleViewFormSubmissions}
@@ -2164,6 +2182,7 @@ export default function App() {
               onCreateTenantUser={handleCreateTenantUser}
               onUpdateTenantUser={handleUpdateTenantUser}
               onDeleteTenantUser={handleDeleteTenantUser}
+              onResetTenantUserCredentials={handleResetTenantUserCredentials}
             />
           )}
 
