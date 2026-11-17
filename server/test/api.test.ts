@@ -721,3 +721,265 @@ test('superadmin tenant update: validates slug, rejects conflicts with 409, and 
 
   await app.close();
 });
+
+test('superadmin user update: modifies username, displayName, and role with uniqueness and RBAC guards', async () => {
+  const store = new InMemoryAppStore();
+  await seedDatabase(store);
+  const app = await buildServer({ store, logger: false });
+
+  const adminLogin = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { username: 'superadmin', password: 'admin123' },
+  });
+  const adminCookie = extractCookieHeader(adminLogin);
+
+  const acmeLogin = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { username: 'acme_admin', password: 'acme1234' },
+  });
+  assert.equal(acmeLogin.statusCode, 200);
+  const acmeCookie = extractCookieHeader(acmeLogin);
+
+  const usersRes = await app.inject({
+    method: 'GET',
+    url: '/api/admin/users',
+    headers: { cookie: adminCookie },
+  });
+  const usersList = usersRes.json<{
+    users: Array<{ id: string; username: string; role: string }>;
+  }>().users;
+  const superadminUser = usersList.find((u) => u.role === 'superadmin')!;
+  const globexUser = usersList.find((u) => u.username === 'globex_admin')!;
+  const acmeUser = usersList.find((u) => u.username === 'acme_admin')!;
+
+  // Empty payload rejected with 400
+  const emptyRes = await app.inject({
+    method: 'PATCH',
+    url: `/api/admin/users/${globexUser.id}`,
+    headers: { cookie: adminCookie },
+    payload: {},
+  });
+  assert.equal(emptyRes.statusCode, 400);
+
+  // Invalid username rejected with 400 + fieldErrors.username
+  const badUsernameRes = await app.inject({
+    method: 'PATCH',
+    url: `/api/admin/users/${globexUser.id}`,
+    headers: { cookie: adminCookie },
+    payload: { username: 'bad user' },
+  });
+  assert.equal(badUsernameRes.statusCode, 400);
+  assert.ok(
+    badUsernameRes.json<{ fieldErrors?: Record<string, string> }>().fieldErrors
+      ?.username,
+  );
+
+  // Case-insensitive duplicate username rejected with 409
+  const duplicateRes = await app.inject({
+    method: 'PATCH',
+    url: `/api/admin/users/${globexUser.id}`,
+    headers: { cookie: adminCookie },
+    payload: { username: 'ACME_ADMIN' },
+  });
+  assert.equal(duplicateRes.statusCode, 409);
+
+  // Superadmin target protected with 403
+  const superadminProtected = await app.inject({
+    method: 'PATCH',
+    url: `/api/admin/users/${superadminUser.id}`,
+    headers: { cookie: adminCookie },
+    payload: { displayName: 'Compromised' },
+  });
+  assert.equal(superadminProtected.statusCode, 403);
+
+  // Valid update modifies username, displayName, and role, and revokes old session
+  const updateRes = await app.inject({
+    method: 'PATCH',
+    url: `/api/admin/users/${acmeUser.id}`,
+    headers: { cookie: adminCookie },
+    payload: {
+      username: 'acme_ops',
+      displayName: 'Acme Operations',
+      role: 'tenant_member',
+    },
+  });
+  assert.equal(updateRes.statusCode, 200);
+  const updated = updateRes.json<{
+    user: { id: string; username: string; displayName: string; role: string };
+  }>().user;
+  assert.equal(updated.username, 'acme_ops');
+  assert.equal(updated.displayName, 'Acme Operations');
+  assert.equal(updated.role, 'tenant_member');
+
+  // Old session invalidated when username changes
+  const meAfterRename = await app.inject({
+    method: 'GET',
+    url: '/api/auth/me',
+    headers: { cookie: acmeCookie },
+  });
+  assert.equal(meAfterRename.statusCode, 401);
+
+  // Login works with new username
+  const newLoginRes = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: {
+      username: 'acme_ops',
+      password: 'acme1234',
+      tenantSlug: 'acme-corp',
+    },
+  });
+  assert.equal(newLoginRes.statusCode, 200);
+
+  await app.close();
+});
+
+test('superadmin reset-credentials: generates or sets password, revokes sessions, and emails credentials', async () => {
+  const store = new InMemoryAppStore();
+  await seedDatabase(store);
+
+  const sentEmails: TenantWelcomeEmailPayload[] = [];
+  const spyEmailService: EmailService = {
+    async sendTenantWelcomeEmail(payload) {
+      sentEmails.push(payload);
+      return { status: 'sent', provider: 'resend', messageId: 're_reset_1' };
+    },
+  };
+
+  const app = await buildServer({
+    store,
+    logger: false,
+    emailService: spyEmailService,
+    appOrigin: 'https://forms.example.com',
+  });
+
+  const adminLogin = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { username: 'superadmin', password: 'admin123' },
+  });
+  const adminCookie = extractCookieHeader(adminLogin);
+
+  const acmeLogin = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { username: 'acme_admin', password: 'acme1234' },
+  });
+  const acmeCookie = extractCookieHeader(acmeLogin);
+
+  const usersRes = await app.inject({
+    method: 'GET',
+    url: '/api/admin/users',
+    headers: { cookie: adminCookie },
+  });
+  const usersList = usersRes.json<{
+    users: Array<{ id: string; username: string; role: string }>;
+  }>().users;
+  const superadminUser = usersList.find((u) => u.role === 'superadmin')!;
+  const acmeUser = usersList.find((u) => u.username === 'acme_admin')!;
+
+  // Non-superadmin blocked with 403
+  const nonAdminRes = await app.inject({
+    method: 'POST',
+    url: `/api/admin/users/${acmeUser.id}/reset-credentials`,
+    headers: { cookie: acmeCookie },
+    payload: {},
+  });
+  assert.equal(nonAdminRes.statusCode, 403);
+
+  // Superadmin target blocked with 403
+  const superadminTargetRes = await app.inject({
+    method: 'POST',
+    url: `/api/admin/users/${superadminUser.id}/reset-credentials`,
+    headers: { cookie: adminCookie },
+    payload: {},
+  });
+  assert.equal(superadminTargetRes.statusCode, 403);
+
+  // Invalid short password and malformed email rejected with 400 + fieldErrors
+  const badPayloadRes = await app.inject({
+    method: 'POST',
+    url: `/api/admin/users/${acmeUser.id}/reset-credentials`,
+    headers: { cookie: adminCookie },
+    payload: { password: 'short', email: 'not-email' },
+  });
+  assert.equal(badPayloadRes.statusCode, 400);
+  const badFields = badPayloadRes.json<{
+    fieldErrors?: Record<string, string>;
+  }>().fieldErrors;
+  assert.ok(badFields?.password);
+  assert.ok(badFields?.email);
+
+  // Auto-generate 16-char hex password and email it
+  const autoResetRes = await app.inject({
+    method: 'POST',
+    url: `/api/admin/users/${acmeUser.id}/reset-credentials`,
+    headers: { cookie: adminCookie },
+    payload: { email: 'Admin@Acme.example' },
+  });
+  assert.equal(autoResetRes.statusCode, 200);
+  const autoBody = autoResetRes.json<{
+    user: { id: string; username: string };
+    generatedPassword?: string;
+    emailDelivery?: { status: string; provider: string; messageId?: string };
+  }>();
+  assert.match(autoBody.generatedPassword ?? '', /^[0-9a-f]{16}$/);
+  assert.equal(autoBody.emailDelivery?.status, 'sent');
+  assert.equal(sentEmails.length, 1);
+  assert.equal(sentEmails[0]!.to, 'admin@acme.example');
+  assert.equal(sentEmails[0]!.username, 'acme_admin');
+  assert.equal(sentEmails[0]!.password, autoBody.generatedPassword);
+  assert.equal(
+    sentEmails[0]!.loginUrl,
+    'https://forms.example.com/t/acme-corp/login',
+  );
+
+  // Old session invalidated
+  const meAfterReset = await app.inject({
+    method: 'GET',
+    url: '/api/auth/me',
+    headers: { cookie: acmeCookie },
+  });
+  assert.equal(meAfterReset.statusCode, 401);
+
+  // Login succeeds with generated password
+  const loginGenerated = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: {
+      username: 'acme_admin',
+      password: autoBody.generatedPassword,
+      tenantSlug: 'acme-corp',
+    },
+  });
+  assert.equal(loginGenerated.statusCode, 200);
+
+  // Explicit custom password does not return generatedPassword
+  const customResetRes = await app.inject({
+    method: 'POST',
+    url: `/api/admin/users/${acmeUser.id}/reset-credentials`,
+    headers: { cookie: adminCookie },
+    payload: { password: 'customPassword99' },
+  });
+  assert.equal(customResetRes.statusCode, 200);
+  const customBody = customResetRes.json<{
+    user: { id: string };
+    generatedPassword?: string;
+  }>();
+  assert.equal(customBody.generatedPassword, undefined);
+
+  const loginCustom = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: {
+      username: 'acme_admin',
+      password: 'customPassword99',
+      tenantSlug: 'acme-corp',
+    },
+  });
+  assert.equal(loginCustom.statusCode, 200);
+
+  await app.close();
+});

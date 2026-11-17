@@ -26,10 +26,16 @@ export interface CreateTenantUserDto {
 }
 
 export interface UpdateTenantUserDto {
+  username?: string;
   displayName?: string;
   role?: 'tenant_admin' | 'tenant_member';
   isActive?: boolean;
   password?: string;
+}
+
+export interface ResetUserCredentialsDto {
+  password?: string;
+  email?: string;
 }
 
 export type ValidationResult<T> =
@@ -206,45 +212,116 @@ export function validateUpdateTenantUserDto(
   }
   const body = raw as Record<string, unknown>;
   const data: UpdateTenantUserDto = {};
+  const fieldErrors: Record<string, string> = {};
+
+  if (body.username !== undefined) {
+    const trimmedUsername =
+      typeof body.username === 'string' ? body.username.trim() : '';
+    if (!USERNAME_PATTERN.test(trimmedUsername)) {
+      fieldErrors.username =
+        'Username must be 3–32 characters (letters, numbers, _, ., or -).';
+    } else {
+      data.username = trimmedUsername;
+    }
+  }
 
   if (body.displayName !== undefined) {
     if (
       typeof body.displayName !== 'string' ||
       body.displayName.trim().length < 2
     ) {
-      return {
-        ok: false,
-        error: 'Display name must be at least 2 characters.',
-      };
+      fieldErrors.displayName = 'Display name must be at least 2 characters.';
+    } else {
+      data.displayName = body.displayName.trim();
     }
-    data.displayName = body.displayName.trim();
   }
 
   if (body.role !== undefined) {
     if (body.role !== 'tenant_admin' && body.role !== 'tenant_member') {
-      return {
-        ok: false,
-        error: 'Role must be "tenant_admin" or "tenant_member".',
-      };
+      fieldErrors.role = 'Role must be "tenant_admin" or "tenant_member".';
+    } else {
+      data.role = body.role;
     }
-    data.role = body.role;
   }
 
   if (body.isActive !== undefined) {
     if (typeof body.isActive !== 'boolean') {
-      return { ok: false, error: 'isActive must be a boolean.' };
+      fieldErrors.isActive = 'isActive must be a boolean.';
+    } else {
+      data.isActive = body.isActive;
     }
-    data.isActive = body.isActive;
   }
 
   if (body.password !== undefined) {
     if (typeof body.password !== 'string' || body.password.length < 8) {
-      return {
-        ok: false,
-        error: 'New password must be at least 8 characters.',
-      };
+      fieldErrors.password = 'New password must be at least 8 characters.';
+    } else {
+      data.password = body.password;
     }
-    data.password = body.password;
+  }
+
+  const firstError =
+    fieldErrors.username ??
+    fieldErrors.displayName ??
+    fieldErrors.role ??
+    fieldErrors.isActive ??
+    fieldErrors.password;
+
+  if (firstError) {
+    return { ok: false, error: firstError, fieldErrors };
+  }
+
+  if (
+    data.username === undefined &&
+    data.displayName === undefined &&
+    data.role === undefined &&
+    data.isActive === undefined &&
+    data.password === undefined
+  ) {
+    return {
+      ok: false,
+      error:
+        'At least one user field (username, displayName, role, isActive, or password) must be provided.',
+    };
+  }
+
+  return { ok: true, data };
+}
+
+export function validateResetUserCredentialsDto(
+  raw: unknown,
+): ValidationResult<ResetUserCredentialsDto> {
+  if (raw !== undefined && (typeof raw !== 'object' || raw === null)) {
+    return { ok: false, error: 'Invalid credentials reset payload.' };
+  }
+
+  const body = (raw ?? {}) as Record<string, unknown>;
+  const data: ResetUserCredentialsDto = {};
+  const fieldErrors: Record<string, string> = {};
+
+  if (body.password !== undefined) {
+    if (typeof body.password !== 'string' || body.password.length < 8) {
+      fieldErrors.password = 'New password must be at least 8 characters.';
+    } else {
+      data.password = body.password;
+    }
+  }
+
+  if (body.email !== undefined) {
+    const trimmedEmail =
+      typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    if (trimmedEmail !== '') {
+      if (!EMAIL_PATTERN.test(trimmedEmail)) {
+        fieldErrors.email = 'Please enter a valid email address.';
+      } else {
+        data.email = trimmedEmail;
+      }
+    }
+  }
+
+  const firstError = fieldErrors.password ?? fieldErrors.email;
+  if (firstError) {
+    return { ok: false, error: firstError, fieldErrors };
   }
 
   return { ok: true, data };

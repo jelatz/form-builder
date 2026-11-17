@@ -19,6 +19,7 @@ import type { PaginatedResult, PublicUser } from '../../types.ts';
 import type {
   CreateTenantDto,
   CreateTenantUserDto,
+  ResetUserCredentialsDto,
   UpdateTenantDto,
   UpdateTenantUserDto,
 } from './dto.ts';
@@ -285,11 +286,23 @@ export async function updateTenantUserAction(
     };
   }
 
+  if (dto.username !== undefined) {
+    const conflict = await store.findUserByUsername(dto.username);
+    if (conflict && conflict.id !== userId) {
+      return {
+        ok: false,
+        statusCode: 409,
+        error: `Username "${dto.username}" is already taken.`,
+      };
+    }
+  }
+
   const nowIso = new Date().toISOString();
   const passwordHash =
     dto.password !== undefined ? await hashPassword(dto.password) : undefined;
 
   const updated = await store.updateUser(userId, {
+    username: dto.username,
     displayName: dto.displayName,
     role: dto.role,
     isActive: dto.isActive,
@@ -301,11 +314,95 @@ export async function updateTenantUserAction(
     return { ok: false, statusCode: 404, error: 'User not found.' };
   }
 
-  if (dto.isActive === false || dto.password !== undefined) {
+  if (
+    dto.isActive === false ||
+    dto.password !== undefined ||
+    dto.username !== undefined
+  ) {
     await store.revokeUserSessions(userId, nowIso);
   }
 
   return { ok: true, data: updated };
+}
+
+export interface ResetUserCredentialsResult {
+  user: PublicUser;
+  generatedPassword?: string;
+  emailDelivery?: EmailDeliveryResult;
+}
+
+export async function resetTenantUserCredentialsAction(
+  store: AppStore,
+  userId: string,
+  dto: ResetUserCredentialsDto,
+  deps: CreateTenantDependencies,
+): Promise<ActionResult<ResetUserCredentialsResult>> {
+  const existing = await store.findUserById(userId);
+  if (!existing) {
+    return { ok: false, statusCode: 404, error: 'User not found.' };
+  }
+  if (existing.role === 'superadmin' || !existing.clientId) {
+    return {
+      ok: false,
+      statusCode: 403,
+      error: 'Superadmin account cannot be modified via tenant user endpoint.',
+    };
+  }
+
+  const tenant = await store.findClientById(existing.clientId);
+  if (!tenant) {
+    return { ok: false, statusCode: 404, error: 'Target tenant not found.' };
+  }
+
+  const isGenerated = dto.password === undefined;
+  const rawPassword = dto.password ?? generateHexPassword();
+  const passwordHash = await hashPassword(rawPassword);
+  const nowIso = new Date().toISOString();
+
+  const updated = await store.updateUser(userId, {
+    passwordHash,
+    nowIso,
+  });
+  if (!updated) {
+    return { ok: false, statusCode: 404, error: 'User not found.' };
+  }
+
+  await store.revokeUserSessions(userId, nowIso);
+
+  let emailDelivery: EmailDeliveryResult | undefined;
+  if (dto.email) {
+    const normalizedOrigin = deps.appOrigin.replace(/\/+$/, '');
+    const loginUrl = `${normalizedOrigin}/t/${tenant.slug}/login`;
+    try {
+      emailDelivery = await deps.emailService.sendTenantWelcomeEmail({
+        to: dto.email,
+        tenantName: tenant.name,
+        tenantSlug: tenant.slug,
+        username: updated.username,
+        password: rawPassword,
+        loginUrl,
+      });
+    } catch (err) {
+      const reason =
+        err instanceof Error && err.message.trim()
+          ? err.message
+          : 'Failed to deliver credentials email.';
+      return {
+        ok: false,
+        statusCode: 502,
+        error: `Password was updated, but credential email delivery failed: ${reason}`,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    data: {
+      user: updated,
+      ...(isGenerated ? { generatedPassword: rawPassword } : {}),
+      ...(emailDelivery ? { emailDelivery } : {}),
+    },
+  };
 }
 
 export async function deleteTenantUserAction(

@@ -70,6 +70,7 @@ export interface CreateUserInput {
 }
 
 export interface UpdateUserInput {
+  username?: string;
   displayName?: string;
   role?: 'tenant_admin' | 'tenant_member';
   isActive?: boolean;

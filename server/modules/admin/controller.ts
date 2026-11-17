@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { AppStore } from '../../db/store.ts';
+import type { EmailService } from '../../lib/email.ts';
 import { requireSuperadmin } from '../../middleware/rbac.ts';
 import {
   createTenantAction,
@@ -10,19 +11,27 @@ import {
   listGlobalFormsAction,
   listGlobalSubmissionsAction,
   listUsersAction,
+  resetTenantUserCredentialsAction,
   updateTenantAction,
   updateTenantUserAction,
 } from './actions.ts';
 import {
   validateCreateTenantDto,
   validateCreateTenantUserDto,
+  validateResetUserCredentialsDto,
   validateUpdateTenantDto,
   validateUpdateTenantUserDto,
 } from './dto.ts';
 
+export interface AdminRoutesOptions {
+  emailService: EmailService;
+  appOrigin: string;
+}
+
 export function registerAdminRoutes(
   app: FastifyInstance,
   store: AppStore,
+  options: AdminRoutesOptions,
 ): void {
   // Tenants management
   app.get('/api/admin/tenants', async (request, reply) => {
@@ -39,8 +48,14 @@ export function registerAdminRoutes(
         .code(400)
         .send({ error: parsed.error, fieldErrors: parsed.fieldErrors });
     }
-    const created = await createTenantAction(store, parsed.data);
-    return reply.code(201).send(created);
+    const result = await createTenantAction(store, parsed.data, {
+      emailService: options.emailService,
+      appOrigin: options.appOrigin,
+    });
+    if (!result.ok) {
+      return reply.code(result.statusCode).send({ error: result.error });
+    }
+    return reply.code(201).send(result.data);
   });
 
   app.patch<{ Params: { tenantId: string } }>(
@@ -109,7 +124,9 @@ export function registerAdminRoutes(
       if (!requireSuperadmin(request, reply)) return;
       const parsed = validateUpdateTenantUserDto(request.body);
       if (!parsed.ok) {
-        return reply.code(400).send({ error: parsed.error });
+        return reply
+          .code(400)
+          .send({ error: parsed.error, fieldErrors: parsed.fieldErrors });
       }
       const result = await updateTenantUserAction(
         store,
@@ -120,6 +137,32 @@ export function registerAdminRoutes(
         return reply.code(result.statusCode).send({ error: result.error });
       }
       return reply.code(200).send({ user: result.data });
+    },
+  );
+
+  app.post<{ Params: { userId: string } }>(
+    '/api/admin/users/:userId/reset-credentials',
+    async (request, reply) => {
+      if (!requireSuperadmin(request, reply)) return;
+      const parsed = validateResetUserCredentialsDto(request.body);
+      if (!parsed.ok) {
+        return reply
+          .code(400)
+          .send({ error: parsed.error, fieldErrors: parsed.fieldErrors });
+      }
+      const result = await resetTenantUserCredentialsAction(
+        store,
+        request.params.userId,
+        parsed.data,
+        {
+          emailService: options.emailService,
+          appOrigin: options.appOrigin,
+        },
+      );
+      if (!result.ok) {
+        return reply.code(result.statusCode).send({ error: result.error });
+      }
+      return reply.code(200).send(result.data);
     },
   );
 

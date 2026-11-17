@@ -209,6 +209,7 @@ export class NeonDrizzleStore implements AppStore {
     const patch: Partial<typeof users.$inferInsert> = {
       updatedAt: input.nowIso,
     };
+    if (input.username !== undefined) patch.username = input.username;
     if (input.displayName !== undefined) patch.displayName = input.displayName;
     if (input.role !== undefined) patch.role = input.role;
     if (input.isActive !== undefined) patch.isActive = input.isActive;

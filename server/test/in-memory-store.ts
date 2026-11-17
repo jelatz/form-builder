@@ -162,6 +162,7 @@ export class InMemoryAppStore implements AppStore {
     if (!existing) return null;
     const updated: StoredUser = {
       ...existing,
+      ...(input.username !== undefined ? { username: input.username } : {}),
       ...(input.displayName !== undefined
         ? { displayName: input.displayName }
         : {}),
