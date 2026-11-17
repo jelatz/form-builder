@@ -35,12 +35,12 @@ export const radioFieldDefinition: FieldDefinition<'radio'> = {
           aria-label={field.label}
           className="space-y-1.5 pt-1"
         >
-          {field.options.map((opt) => {
-            const inputId = `${field.id}_${opt.value}`;
+          {field.options.map((opt, index) => {
+            const inputId = `${field.id}_${index}_${opt.value}`;
             const checked = selectedValue === opt.value;
             return (
               <label
-                key={opt.value}
+                key={index}
                 htmlFor={inputId}
                 className="flex items-center gap-2.5 px-3 py-2 rounded-md border border-zinc-200 bg-white hover:border-zinc-300 cursor-pointer text-xs text-zinc-800 select-none transition-colors"
               >

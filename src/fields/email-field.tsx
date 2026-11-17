@@ -46,14 +46,8 @@ export const emailFieldDefinition: FieldDefinition<'email'> = {
             placeholder={field.placeholder ?? ''}
             disabled={disabled}
             hasError={Boolean(error)}
-            className="pl-8 pr-8"
+            className="pl-8"
           />
-          <span
-            className="absolute right-2 top-1/2 -translate-y-1/2 bg-rose-500 text-white rounded-xs px-1 text-[9px] font-bold leading-tight select-none pointer-events-none"
-            title="Autofill enabled"
-          >
-            •••
-          </span>
         </div>
 
         {field.confirmEmail && (

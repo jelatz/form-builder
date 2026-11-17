@@ -32,13 +32,12 @@ export interface BuilderCanvasProps {
   onRemoveField: (fieldId: string) => void;
   onUpdateMetadata: (
     patch: Partial<
-      Pick<FormSchema, 'title' | 'description' | 'slug' | 'submitButtonText'>
+      Pick<
+        FormSchema,
+        'title' | 'description' | 'slug' | 'submitButtonText' | 'isPublished'
+      >
     >,
   ) => void;
-  canUndo: boolean;
-  canRedo: boolean;
-  onUndo: () => void;
-  onRedo: () => void;
 }
 
 function parsePresetPatch(
@@ -76,10 +75,6 @@ export function BuilderCanvas({
   onDuplicateField,
   onRemoveField,
   onUpdateMetadata,
-  canUndo,
-  canRedo,
-  onUndo,
-  onRedo,
 }: BuilderCanvasProps) {
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [dragOverGridCol, setDragOverGridCol] = useState<{
@@ -260,33 +255,8 @@ export function BuilderCanvas({
       onClick={() => onSelectField(null)}
       className="flex-1 overflow-y-auto py-8 px-6 bg-[#f4f5f7] relative"
     >
-      {/* Top-right floating controls & page icon badge */}
+      {/* Top-right field count badge */}
       <div className="absolute top-4 right-5 hidden lg:flex items-center gap-2">
-        <div
-          className="flex items-center gap-1"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <Button
-            size="xs"
-            variant="secondary"
-            disabled={!canUndo}
-            onClick={onUndo}
-            title="Undo last change"
-            className="h-7 px-2 text-xs"
-          >
-            Undo
-          </Button>
-          <Button
-            size="xs"
-            variant="secondary"
-            disabled={!canRedo}
-            onClick={onRedo}
-            title="Redo change"
-            className="h-7 px-2 text-xs"
-          >
-            Redo
-          </Button>
-        </div>
         <div
           className="flex items-center gap-1 px-2 py-1.5 rounded-md bg-white border border-zinc-200 shadow-2xs text-zinc-500 text-xs"
           title={`${schema.fields.length} ${schema.fields.length === 1 ? 'Field' : 'Fields'}`}
@@ -311,7 +281,7 @@ export function BuilderCanvas({
       </div>
 
       <div className="max-w-[740px] mx-auto space-y-5">
-        {/* Part A: Form Title Header Card */}
+        {/* Part A: Form Title & Description Header Card */}
         <div
           onClick={(e) => {
             e.stopPropagation();
@@ -331,11 +301,17 @@ export function BuilderCanvas({
             placeholder="Untitled Form"
             className="w-full text-center text-lg font-bold text-zinc-900 bg-transparent border-0 focus:outline-none focus:ring-0"
           />
-          <div className="mt-4 w-full py-1.5 px-4 rounded-xs bg-sky-50/70 border border-sky-200/80 text-center">
-            <span className="text-xs font-medium text-zinc-600">
-              {schema.description || 'Page Navigation Bar : Hidden'}
-            </span>
-          </div>
+          <input
+            aria-label="Form Description"
+            value={schema.description ?? ''}
+            onChange={(e) =>
+              onUpdateMetadata({
+                description: e.target.value || undefined,
+              })
+            }
+            placeholder="Add an optional description..."
+            className="mt-2 w-full text-center text-xs text-zinc-500 placeholder:text-zinc-400 bg-transparent border-0 focus:outline-none focus:ring-0"
+          />
         </div>
 
         {/* Part B: Dashed Section Divider with + Button */}
@@ -361,12 +337,6 @@ export function BuilderCanvas({
 
         {/* Part C: Continuous Form Sheet Card */}
         <div className="relative bg-white rounded-md border border-zinc-200/90 shadow-xs overflow-hidden">
-          <div
-            className="absolute top-3 right-4 h-5 w-5 rounded-xs bg-amber-100 border border-amber-300/80 flex items-center justify-center text-[10px] font-bold text-amber-700 pointer-events-none select-none z-10"
-            title="Form Layout Section"
-          >
-            Ab
-          </div>
 
           {topLevelFields.length === 0 ? (
             <div
@@ -491,7 +461,7 @@ export function BuilderCanvas({
                         title="Duplicate Field"
                         className="h-6 px-1.5 text-xs"
                       >
-                        Copy
+                        Duplicate
                       </Button>
                       <Button
                         size="xs"
@@ -501,7 +471,7 @@ export function BuilderCanvas({
                         title="Delete Field"
                         className="h-6 px-1.5 text-xs"
                       >
-                        Del
+                        Delete
                       </Button>
                     </div>
 
@@ -635,7 +605,7 @@ export function BuilderCanvas({
                                             title="Duplicate Field"
                                             className="h-5 px-1.5 text-[11px]"
                                           >
-                                            Copy
+                                            Duplicate
                                           </Button>
                                           <Button
                                             size="xs"
@@ -647,7 +617,7 @@ export function BuilderCanvas({
                                             title="Delete Field"
                                             className="h-5 px-1.5 text-[11px]"
                                           >
-                                            Del
+                                            Delete
                                           </Button>
                                         </div>
 
@@ -715,13 +685,25 @@ export function BuilderCanvas({
                   executeDropAt(e, schema.fields.length);
                 }}
                 className={cn(
-                  'col-span-6 px-8 py-3 text-center font-mono text-[11px] transition-colors',
+                  'col-span-6 px-8 py-3 text-center text-xs transition-colors',
                   dragOverIndex === schema.fields.length
                     ? 'bg-emerald-50/60 text-emerald-700 border-t-2 border-t-emerald-500'
                     : 'bg-zinc-50/30 text-zinc-400 hover:bg-zinc-50/70',
                 )}
               >
-                Drop field here to append to bottom
+                Drop a field here to add it to the end
+              </div>
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectField(null);
+                }}
+                className="col-span-6 px-8 py-4 bg-zinc-50/70 border-t border-zinc-200 flex items-center justify-end cursor-pointer"
+                title="Click to edit submit button text in Form Settings"
+              >
+                <span className="inline-flex items-center justify-center h-8 px-4 rounded-md bg-emerald-600 text-white text-xs font-medium opacity-90">
+                  {schema.submitButtonText || 'Submit'}
+                </span>
               </div>
             </div>
           )}

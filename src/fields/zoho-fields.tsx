@@ -61,14 +61,8 @@ export const nameFieldDefinition: FieldDefinition<'name'> = {
                 }
                 disabled={disabled}
                 hasError={Boolean(error)}
-                className="pl-8 pr-8"
+                className="pl-8"
               />
-              <span
-                className="absolute right-2 top-1/2 -translate-y-1/2 bg-rose-500 text-white rounded-xs px-1 text-[9px] font-bold leading-tight select-none"
-                title="Autofill enabled"
-              >
-                •••
-              </span>
             </div>
             <span className="block text-[11px] text-zinc-500 mt-1">
               {field.firstNameLabel ?? 'First Name'}

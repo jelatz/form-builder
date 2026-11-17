@@ -9,9 +9,14 @@ import {
   Button,
   FilterDropdown,
   Input,
+  PageContainer,
   type FilterDropdownOption,
 } from '../../shared/ui';
-import { formatIsoTimestamp } from './tenant-utils';
+import {
+  formatIsoTimestamp,
+  formatSubmissionValue,
+  getSubmissionPreview,
+} from './tenant-utils';
 
 export interface GlobalSubmissionsPanelProps {
   tenants: ClientTenant[];
@@ -22,16 +27,9 @@ export interface GlobalSubmissionsPanelProps {
   onDeleteSubmission: (clientId: string, submissionId: string) => void;
 }
 
-function formatCellValue(value: unknown): string {
-  if (value === undefined || value === null || value === '') return '—';
-  if (typeof value === 'boolean') return value ? 'true' : 'false';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
-}
-
 /**
  * Cross-form (and for superadmin, cross-tenant) submission explorer with search,
- * tenant/form filters, CSV/JSON export, and JSON payload inspection.
+ * tenant/form filters, and CSV/JSON export.
  */
 export function GlobalSubmissionsPanel({
   tenants,
@@ -47,6 +45,7 @@ export function GlobalSubmissionsPanel({
   const [formFilter, setFormFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const effectiveTenantFilter = isSuperadmin ? tenantFilter : activeTenantId;
 
@@ -105,7 +104,6 @@ export function GlobalSubmissionsPanel({
     ...tenants.map((t) => ({
       value: t.id,
       label: t.name,
-      description: `/${t.slug}`,
       meta: String(submissions.filter((s) => s.clientId === t.id).length),
     })),
   ];
@@ -126,7 +124,6 @@ export function GlobalSubmissionsPanel({
     ...scopedForms.map((f) => ({
       value: f.id,
       label: f.title,
-      description: `/${f.slug}`,
       meta: String(submissions.filter((s) => s.formId === f.id).length),
     })),
   ];
@@ -177,7 +174,7 @@ export function GlobalSubmissionsPanel({
       aria-label="Submissions Explorer"
       className="flex-1 overflow-y-auto p-6 bg-[#f4f5f7]"
     >
-      <div className="w-full space-y-4">
+      <PageContainer>
         <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -270,7 +267,7 @@ export function GlobalSubmissionsPanel({
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-xs uppercase text-zinc-600">
-                      <th className="py-2.5 px-3">Record</th>
+                      <th className="py-2.5 px-3">Response</th>
                       {isSuperadmin && <th className="py-2.5 px-3">Tenant</th>}
                       <th className="py-2.5 px-3">Form</th>
                       <th className="py-2.5 px-3">Submitted At</th>
@@ -282,6 +279,7 @@ export function GlobalSubmissionsPanel({
                       const form = formMap.get(sub.formId);
                       const tenant = tenantMap.get(sub.clientId);
                       const isSelected = selectedRecord?.id === sub.id;
+                      const isConfirming = confirmDeleteId === sub.id;
                       return (
                         <tr
                           key={sub.id}
@@ -292,37 +290,57 @@ export function GlobalSubmissionsPanel({
                               : 'hover:bg-zinc-50 text-zinc-700 cursor-pointer'
                           }
                         >
-                          <td className="py-2.5 px-3 font-mono text-zinc-700">
-                            {sub.id}
+                          <td className="py-2.5 px-3 font-medium text-zinc-900 max-w-[200px] truncate">
+                            {getSubmissionPreview(sub, form)}
                           </td>
                           {isSuperadmin && (
                             <td className="py-2.5 px-3">
                               <span className="font-medium text-zinc-800">
-                                {tenant?.name ?? sub.clientId}
+                                {tenant?.name ?? 'Unknown tenant'}
                               </span>
                             </td>
                           )}
                           <td className="py-2.5 px-3">
                             <span className="font-medium text-zinc-900">
-                              {form?.title ?? sub.formId}
+                              {form?.title ?? 'Untitled form'}
                             </span>
                           </td>
                           <td className="py-2.5 px-3 font-mono text-zinc-500 whitespace-nowrap">
                             {formatIsoTimestamp(sub.submittedAt)}
                           </td>
                           <td
-                            className="py-2.5 px-3 text-right"
+                            className="py-2.5 px-3 text-right whitespace-nowrap"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <Button
-                              size="xs"
-                              variant="danger"
-                              onClick={() =>
-                                onDeleteSubmission(sub.clientId, sub.id)
-                              }
-                            >
-                              Delete
-                            </Button>
+                            {isConfirming ? (
+                              <div className="inline-flex items-center gap-1">
+                                <Button
+                                  size="xs"
+                                  variant="ghost"
+                                  onClick={() => setConfirmDeleteId(null)}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  size="xs"
+                                  variant="danger"
+                                  onClick={() => {
+                                    setConfirmDeleteId(null);
+                                    onDeleteSubmission(sub.clientId, sub.id);
+                                  }}
+                                >
+                                  Confirm
+                                </Button>
+                              </div>
+                            ) : (
+                              <Button
+                                size="xs"
+                                variant="danger"
+                                onClick={() => setConfirmDeleteId(sub.id)}
+                              >
+                                Delete
+                              </Button>
+                            )}
                           </td>
                         </tr>
                       );
@@ -335,15 +353,17 @@ export function GlobalSubmissionsPanel({
             {selectedRecord && (
               <aside className="rounded-lg border border-zinc-200 bg-white p-4 shadow-2xs space-y-3">
                 <div className="flex items-center justify-between border-b border-zinc-200 pb-2">
-                  <div>
-                    <Badge variant="neutral">RECORD DETAIL</Badge>
-                    <div className="font-mono text-xs text-zinc-600 mt-1">
-                      {selectedRecord.id}
+                  <div className="min-w-0">
+                    <span className="text-xs font-semibold text-zinc-900 block truncate">
+                      {selectedForm?.title ?? 'Submission Details'}
+                    </span>
+                    <div className="font-mono text-[11px] text-zinc-500 mt-0.5">
+                      {formatIsoTimestamp(selectedRecord.submittedAt)}
                     </div>
                   </div>
-                  <span className="font-mono text-[11px] text-zinc-400">
-                    {selectedTenant?.slug ? `/${selectedTenant.slug}` : ''}
-                  </span>
+                  {isSuperadmin && selectedTenant && (
+                    <Badge variant="neutral">{selectedTenant.name}</Badge>
+                  )}
                 </div>
 
                 {selectedForm && (
@@ -355,30 +375,21 @@ export function GlobalSubmissionsPanel({
                           key={field.id}
                           className="p-2.5 rounded-md border border-zinc-200 bg-zinc-50/50 space-y-0.5"
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-medium text-zinc-700">
-                              {field.label}
-                            </span>
-                            <span className="font-mono text-[11px] text-zinc-400">
-                              {field.id}
-                            </span>
-                          </div>
-                          <p className="font-mono text-xs text-zinc-900 break-all">
-                            {formatCellValue(selectedRecord.values[field.id])}
+                          <span className="text-xs font-medium text-zinc-700 block">
+                            {field.label}
+                          </span>
+                          <p className="text-xs text-zinc-900 break-all">
+                            {formatSubmissionValue(selectedRecord.values[field.id])}
                           </p>
                         </div>
                       ))}
                   </div>
                 )}
-
-                <pre className="p-3 rounded-md bg-zinc-50 border border-zinc-200 font-mono text-xs text-zinc-800 overflow-x-auto max-h-72">
-                  {JSON.stringify(selectedRecord, null, 2)}
-                </pre>
               </aside>
             )}
           </div>
         )}
-      </div>
+      </PageContainer>
     </main>
   );
 }

@@ -609,9 +609,6 @@ export function FieldPalette({ onAddField }: FieldPaletteProps) {
           }`}
         >
           <span>Smart Fields</span>
-          <span className="bg-orange-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase leading-tight">
-            NEW
-          </span>
         </button>
       </div>
 
@@ -667,11 +664,6 @@ export function FieldPalette({ onAddField }: FieldPaletteProps) {
                   onDragStart={(e) => handleDragStart(e, tile)}
                   className="relative h-[68px] p-1.5 rounded-md border border-zinc-200/90 bg-white hover:border-emerald-500 hover:shadow-xs transition-all duration-150 flex flex-col items-center justify-center gap-1.5 cursor-grab active:cursor-grabbing active:scale-[0.98] group overflow-hidden"
                 >
-                  {tile.isNew && (
-                    <span className="absolute top-0 left-0 bg-orange-500 text-white text-[8px] font-bold px-1 py-[1px] rounded-br-sm uppercase tracking-tighter leading-tight">
-                      NEW
-                    </span>
-                  )}
                   {renderTileIcon(tile.iconType, tile.accentColor)}
                   <span className="text-[10px] font-medium text-zinc-700 group-hover:text-zinc-950 text-center leading-tight line-clamp-2">
                     {tile.label}

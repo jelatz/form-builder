@@ -1163,3 +1163,18 @@ export function Skeleton({ className }: { className?: string }) {
     />
   );
 }
+
+/** Standardized centered container (up to 1440px) for directory, dashboard, overview, submissions, and schema pages. */
+export function PageContainer({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn('w-full max-w-[1440px] mx-auto space-y-4', className)}>
+      {children}
+    </div>
+  );
+}

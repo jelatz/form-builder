@@ -144,7 +144,9 @@ export function AuthPage({
             </div>
           </div>
           <Badge variant={isTenantLogin ? 'success' : 'neutral'}>
-            {isTenantLogin ? `/${tenantSlug}` : 'Multi-Tenant'}
+            {isTenantLogin
+              ? (tenantInfo?.name ?? 'Workspace Sign-In')
+              : 'Workspace Portal'}
           </Badge>
         </div>
 
@@ -155,7 +157,7 @@ export function AuthPage({
               <div className="space-y-1">
                 <Badge variant="danger">WORKSPACE NOT FOUND</Badge>
                 <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 pt-1">
-                  Tenant workspace &ldquo;/{tenantSlug}&rdquo; is unavailable
+                  Workspace &ldquo;{tenantSlug}&rdquo; is unavailable
                 </h2>
                 <p className="text-xs text-zinc-500">
                   Check the workspace URL with your administrator or sign in

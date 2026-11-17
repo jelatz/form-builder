@@ -39,7 +39,7 @@ export const checkboxFieldDefinition: FieldDefinition<'checkbox'> = {
               onChange={(e) => onChange(e.target.checked)}
               className="h-4 w-4 rounded-sm border-zinc-300 accent-emerald-600 cursor-pointer"
             />
-            <span>{field.label}</span>
+            <span className="text-zinc-600">Yes</span>
           </label>
         </div>
       </FieldFrame>

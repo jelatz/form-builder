@@ -274,7 +274,10 @@ export function moveFieldToGrid(
 export function updateFormMetadata(
   schema: FormSchema,
   patch: Partial<
-    Pick<FormSchema, 'title' | 'description' | 'slug' | 'submitButtonText'>
+    Pick<
+      FormSchema,
+      'title' | 'description' | 'slug' | 'submitButtonText' | 'isPublished'
+    >
   >,
 ): FormSchema {
   return {

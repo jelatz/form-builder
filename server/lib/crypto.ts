@@ -21,6 +21,14 @@ export function createSessionToken(): string {
   return randomBytes(32).toString('base64url');
 }
 
+/**
+ * Generates a 16-character lowercase hexadecimal password (64-bit CSPRNG entropy)
+ * for newly provisioned tenant administrator accounts.
+ */
+export function generateHexPassword(): string {
+  return randomBytes(8).toString('hex');
+}
+
 /** Computes a SHA-256 hex digest for storing session tokens at rest. */
 export function hashSessionToken(rawToken: string): string {
   return createHash('sha256').update(rawToken, 'utf8').digest('hex');

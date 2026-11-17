@@ -110,21 +110,46 @@ export function FormRenderer({
       className="flex-1 overflow-y-auto py-8 px-4 bg-[#f4f5f7]"
     >
       <div className="max-w-3xl mx-auto space-y-4">
-        {/* Runner Status Bar */}
-        <div className="flex items-center justify-between bg-white border border-zinc-200 rounded-md px-4 py-2.5 shadow-2xs">
-          <div className="flex items-center gap-2">
-            <Badge variant={publicMode ? 'neutral' : 'success'}>
-              {publicMode ? (tenantName ?? 'PUBLIC FORM') : 'LIVE PREVIEW'}
-            </Badge>
-            <span className="font-mono text-xs text-zinc-500">
-              /{schema.slug}
-            </span>
+        {/* Runner Status Bar (Preview Mode only) */}
+        {!publicMode && (
+          <div className="flex items-center justify-between bg-white border border-zinc-200 rounded-md px-4 py-2.5 shadow-2xs">
+            <div className="flex items-center gap-2">
+              <Badge variant="success">LIVE PREVIEW</Badge>
+              <span className="text-xs text-zinc-600 truncate">
+                {schema.title}
+              </span>
+            </div>
+            <Button size="xs" variant="ghost" onClick={handleReset}>
+              Reset Preview
+            </Button>
           </div>
-          <Button size="xs" variant="ghost" onClick={handleReset}>
-            Reset Form
-          </Button>
-        </div>
+        )}
 
+        {publicMode && submittedPayload ? (
+          <section
+            aria-label="Submission Confirmed"
+            className="bg-white border border-zinc-200 rounded-md shadow-xs p-8 text-center space-y-4"
+          >
+            {tenantName && (
+              <p className="font-mono text-xs uppercase tracking-wider text-zinc-500">
+                {tenantName}
+              </p>
+            )}
+            <Badge variant="success">SUBMISSION RECEIVED</Badge>
+            <h1 className="text-xl font-semibold text-zinc-900">
+              Thank you!
+            </h1>
+            <p className="text-xs text-zinc-600 max-w-md mx-auto">
+              Your response for <span className="font-medium text-zinc-900">{schema.title}</span> has been recorded.
+            </p>
+            <div className="pt-2">
+              <Button type="button" size="sm" variant="secondary" onClick={handleReset}>
+                Submit another response
+              </Button>
+            </div>
+          </section>
+        ) : (
+        <>
         {/* Interactive Form Card */}
         <form
           onSubmit={(e) => void handleSubmit(e)}
@@ -132,6 +157,11 @@ export function FormRenderer({
           className="bg-white border border-zinc-200 rounded-md shadow-xs overflow-hidden"
         >
           <div className="text-center py-6 px-6 border-b border-zinc-200 space-y-1">
+            {publicMode && tenantName && (
+              <p className="font-mono text-[11px] uppercase tracking-wider text-zinc-500">
+                {tenantName}
+              </p>
+            )}
             <h1 className="text-xl font-semibold text-zinc-900">
               {schema.title || 'Untitled Form'}
             </h1>
@@ -142,8 +172,9 @@ export function FormRenderer({
 
           {schema.fields.length === 0 ? (
             <p className="text-xs text-zinc-500 py-6 text-center">
-              This form has no fields configured. Switch to Edit mode to add
-              fields.
+              {publicMode
+                ? 'This form currently has no fields.'
+                : 'This form has no fields configured. Switch to Edit mode to add fields.'}
             </p>
           ) : (
             <div className="grid grid-cols-6 gap-x-6 divide-y divide-zinc-100 px-8 py-4">
@@ -191,9 +222,11 @@ export function FormRenderer({
                                 >
                                   <FieldLayoutProvider layout="stacked">
                                     {colFields.length === 0 ? (
-                                      <div className="rounded-md border border-zinc-200/80 bg-zinc-50/70 px-4 py-5 text-center text-xs text-zinc-400">
-                                        Empty column
-                                      </div>
+                                      publicMode ? null : (
+                                        <div className="rounded-md border border-zinc-200/80 bg-zinc-50/70 px-4 py-5 text-center text-xs text-zinc-400">
+                                          Empty column
+                                        </div>
+                                      )
                                     ) : (
                                       colFields.map((childField) => {
                                         const childBound = bindFieldModule(childField);
@@ -285,30 +318,24 @@ export function FormRenderer({
           </div>
         </form>
 
-        {/* Submitted Confirmation / Payload Preview */}
-        {submittedPayload && (
+        {/* Submitted Confirmation / Payload Preview (Preview Mode) */}
+        {!publicMode && submittedPayload && (
           <section
             aria-label="Submitted Payload"
             className="p-4 rounded-md border border-emerald-200 bg-emerald-50/50 space-y-2 shadow-2xs"
           >
             <div className="flex items-center justify-between">
-              <Badge variant="success">
-                {publicMode ? 'SUBMISSION RECEIVED' : 'VALID SUBMISSION'}
-              </Badge>
+              <Badge variant="success">VALID SUBMISSION</Badge>
               <span className="font-mono text-xs text-zinc-500">
                 {new Date().toISOString()}
               </span>
             </div>
-            {publicMode ? (
-              <p className="text-xs text-zinc-700">
-                Thank you! Your response has been recorded.
-              </p>
-            ) : (
-              <pre className="p-3 rounded-md bg-white border border-zinc-200 font-mono text-xs text-zinc-800 overflow-x-auto">
-                {JSON.stringify(submittedPayload, null, 2)}
-              </pre>
-            )}
+            <pre className="p-3 rounded-md bg-white border border-zinc-200 font-mono text-xs text-zinc-800 overflow-x-auto">
+              {JSON.stringify(submittedPayload, null, 2)}
+            </pre>
           </section>
+        )}
+        </>
         )}
       </div>
     </main>

@@ -4,6 +4,20 @@
  */
 
 export { ApiError, apiRequest } from './http';
+export {
+  WORKSPACE_MODES,
+  buildWorkspacePath,
+  isFormScopedMode,
+  parseAppRoute,
+  type AppRoute,
+  type WorkspaceMode,
+} from './router';
+export {
+  EMAIL_PATTERN,
+  USERNAME_PATTERN,
+  ensureUniqueUsername,
+  toSnakeCaseUsername,
+} from './username';
 
 export function cn(
   ...classes: Array<string | false | null | undefined>

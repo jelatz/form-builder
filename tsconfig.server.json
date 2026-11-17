@@ -21,5 +21,10 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["server", "src/domain"]
+  "include": [
+    "server",
+    "src/domain",
+    "src/shared/lib/username.ts",
+    "src/shared/lib/router.ts"
+  ]
 }

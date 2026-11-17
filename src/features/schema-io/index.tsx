@@ -1,28 +1,22 @@
 import { useState, type ChangeEvent } from 'react';
 import {
   parseFormSchemaJson,
-  type ClientTenant,
   type FormSchema,
 } from '../../domain/form-schema';
-import { Badge, Button, Select } from '../../shared/ui';
+import { Badge, Button, PageContainer } from '../../shared/ui';
 
 export interface SchemaIoPanelProps {
   schema: FormSchema;
-  availableForms?: FormSchema[];
-  tenants?: ClientTenant[];
-  onSelectForm?: (form: FormSchema) => void;
   onImportSchema: (schema: FormSchema) => void;
 }
 
 export function SchemaIoPanel({
   schema,
-  availableForms,
-  tenants,
-  onSelectForm,
   onImportSchema,
 }: SchemaIoPanelProps) {
   const formattedSchemaJson = JSON.stringify(schema, null, 2);
   const [importDraft, setImportDraft] = useState('');
+  const [pendingImport, setPendingImport] = useState<FormSchema | null>(null);
   const [statusMessage, setStatusMessage] = useState<{
     type: 'success' | 'error';
     text: string;
@@ -33,7 +27,7 @@ export function SchemaIoPanel({
       await navigator.clipboard.writeText(formattedSchemaJson);
       setStatusMessage({
         type: 'success',
-        text: 'Copied FormSchema JSON to clipboard.',
+        text: 'Copied form schema JSON to clipboard.',
       });
     } catch {
       setStatusMessage({
@@ -62,15 +56,23 @@ export function SchemaIoPanel({
   const handleApplyImport = (rawJson: string) => {
     const result = parseFormSchemaJson(rawJson, schema.clientId);
     if (!result.ok) {
+      setPendingImport(null);
       setStatusMessage({ type: 'error', text: result.error });
       return;
     }
-    onImportSchema(result.schema);
+    setStatusMessage(null);
+    setPendingImport(result.schema);
+  };
+
+  const handleConfirmImport = () => {
+    if (!pendingImport) return;
+    onImportSchema(pendingImport);
     setImportDraft('');
     setStatusMessage({
       type: 'success',
-      text: `Imported "${result.schema.title}" (${result.schema.fields.length} fields).`,
+      text: `Imported "${pendingImport.title}" (${pendingImport.fields.length} fields).`,
     });
+    setPendingImport(null);
   };
 
   const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
@@ -79,6 +81,7 @@ export function SchemaIoPanel({
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
+        setImportDraft(reader.result);
         handleApplyImport(reader.result);
       }
     };
@@ -86,60 +89,26 @@ export function SchemaIoPanel({
     event.target.value = '';
   };
 
-  const tenantMap = new Map((tenants ?? []).map((t) => [t.id, t]));
-
   return (
     <main
       aria-label="Schema JSON I/O"
       className="flex-1 overflow-y-auto p-6 bg-[#f4f5f7]"
     >
-      <div className="w-full space-y-4">
-        {availableForms && availableForms.length > 0 && onSelectForm && (
-          <div className="p-3 rounded-lg border border-zinc-200 bg-white shadow-2xs flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Badge variant="neutral">SCHEMA BROWSER</Badge>
-              <span className="text-xs text-zinc-500">
-                Inspecting {schema.title}
-              </span>
-            </div>
-            <div className="w-full sm:w-80">
-              <Select
-                aria-label="Select form schema"
-                menuHeading="Available Form Schemas"
-                value={schema.id}
-                onValueChange={(formId) => {
-                  const found = availableForms.find((f) => f.id === formId);
-                  if (found) onSelectForm(found);
-                }}
-                options={availableForms.map((f) => {
-                  const tenant = tenantMap.get(f.clientId);
-                  return {
-                    value: f.id,
-                    label: f.title,
-                    description: tenant
-                      ? `${tenant.name} (/${f.slug})`
-                      : `/${f.slug}`,
-                    meta: `${f.fields.length}f`,
-                  };
-                })}
-              />
-            </div>
-          </div>
-        )}
-
+      <PageContainer>
       <div className="w-full grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Export / Live AST View */}
+        {/* Export / Live Schema View */}
         <section className="p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs flex flex-col space-y-3">
           <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
             <div>
               <div className="flex items-center gap-2">
-                <Badge variant="neutral">EXPORT AST</Badge>
-                <span className="font-mono text-xs text-zinc-500">
-                  {schema.id}
+                <Badge variant="neutral">EXPORT SCHEMA</Badge>
+                <span className="text-xs font-medium text-zinc-700 truncate">
+                  {schema.title}
                 </span>
               </div>
               <p className="text-xs text-zinc-500 mt-1">
-                100% serializable FormSchema JSON representation
+                Portable JSON definition for this form ({schema.fields.length}{' '}
+                {schema.fields.length === 1 ? 'field' : 'fields'})
               </p>
             </div>
 
@@ -162,9 +131,9 @@ export function SchemaIoPanel({
         <section className="p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs flex flex-col space-y-3">
           <div className="flex items-center justify-between border-b border-zinc-200 pb-3">
             <div>
-              <Badge variant="neutral">IMPORT AST</Badge>
+              <Badge variant="neutral">IMPORT SCHEMA</Badge>
               <p className="text-xs text-zinc-500 mt-1">
-                Paste JSON or upload a schema file to validate and load
+                Paste JSON or upload a schema file to replace the current form
               </p>
             </div>
 
@@ -182,11 +151,42 @@ export function SchemaIoPanel({
           <textarea
             aria-label="Paste FormSchema JSON"
             value={importDraft}
-            onChange={(e) => setImportDraft(e.target.value)}
-            placeholder='{"id": "form_custom", "title": "Custom Form", "fields": [...]}'
+            onChange={(e) => {
+              setImportDraft(e.target.value);
+              setPendingImport(null);
+            }}
+            placeholder='{"title": "Custom Form", "fields": [...]}'
             rows={14}
             className="w-full p-3 rounded-md bg-zinc-50 text-zinc-900 placeholder:text-zinc-400 border border-zinc-200 font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30 focus-visible:border-emerald-600 transition-colors"
           />
+
+          {pendingImport && (
+            <div className="p-3 rounded-md border border-amber-200 bg-amber-50 space-y-2 text-xs">
+              <p className="font-medium text-amber-900">
+                Overwrite &ldquo;{schema.title}&rdquo; with &ldquo;{pendingImport.title}&rdquo; ({pendingImport.fields.length}{' '}
+                {pendingImport.fields.length === 1 ? 'field' : 'fields'})?
+              </p>
+              <p className="text-amber-800">
+                This replaces the current form fields while keeping it scoped to your workspace.
+              </p>
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => setPendingImport(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="xs"
+                  variant="primary"
+                  onClick={handleConfirmImport}
+                >
+                  Confirm Overwrite
+                </Button>
+              </div>
+            </div>
+          )}
 
           {statusMessage && (
             <div
@@ -208,6 +208,7 @@ export function SchemaIoPanel({
               disabled={!importDraft.trim()}
               onClick={() => {
                 setImportDraft('');
+                setPendingImport(null);
                 setStatusMessage(null);
               }}
             >
@@ -219,12 +220,12 @@ export function SchemaIoPanel({
               disabled={!importDraft.trim()}
               onClick={() => handleApplyImport(importDraft)}
             >
-              Validate & Load Schema
+              Validate Schema
             </Button>
           </div>
         </section>
       </div>
-      </div>
+      </PageContainer>
     </main>
   );
 }
