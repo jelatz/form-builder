@@ -618,12 +618,12 @@ export const currencyFieldDefinition: FieldDefinition<'currency'> = {
 export const sectionFieldDefinition: FieldDefinition<'section'> = {
   type: 'section',
   label: 'Section',
-  description: 'Visual section divider with heading title and separator line.',
+  description: 'Form page section with a title, optional subtitle, and divider.',
   badge: 'SEC',
   createDefaultConfig: (id) => ({
     id,
     type: 'section',
-    label: 'Contact Information',
+    label: 'Section 1',
     helperText: '',
     required: false,
     showLine: true,
@@ -631,24 +631,38 @@ export const sectionFieldDefinition: FieldDefinition<'section'> = {
   render: ({ field }) => (
     <div className="space-y-1 py-1">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-zinc-900">{field.label}</h3>
+        <h3 className="text-sm font-semibold text-zinc-900">
+          {field.label.trim() || 'Untitled Section'}
+        </h3>
       </div>
       {field.helperText && (
         <p className="text-xs text-zinc-500">{field.helperText}</p>
       )}
-      {field.showLine && <hr className="border-t border-zinc-200 mt-2" />}
+      {field.showLine !== false && (
+        <hr className="border-t border-zinc-200 mt-2" />
+      )}
     </div>
   ),
   renderInspector: ({ field, onChange }) => (
     <div className="space-y-3">
       <div className="space-y-1.5">
-        <Label htmlFor={`insp_sec_title_${field.id}`}>Section Title</Label>
+        <Label htmlFor={`insp_sec_title_${field.id}`}>
+          Section Title <span className="text-rose-500">*</span>
+        </Label>
         <Input
           id={`insp_sec_title_${field.id}`}
           value={field.label}
           onChange={(e) => onChange({ ...field, label: e.target.value })}
+          onBlur={(e) => {
+            if (!e.target.value.trim()) {
+              onChange({ ...field, label: 'Untitled Section' });
+            }
+          }}
           placeholder="Section title"
         />
+        <p className="text-[11px] text-zinc-500">
+          Each section displays as its own page when filling out the form.
+        </p>
       </div>
 
       <div className="space-y-1.5">

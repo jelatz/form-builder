@@ -1,7 +1,9 @@
 import type {
   ClientTenant,
   FormSchema,
+  FormWebhook,
   SubmissionRecord,
+  WebhookDelivery,
 } from '../../src/domain/form-schema/types.ts';
 import type { AppStore } from '../db/store.ts';
 import type {
@@ -9,6 +11,8 @@ import type {
   CreateFormInput,
   CreateTenantInput,
   CreateUserInput,
+  CreateWebhookDeliveryInput,
+  CreateWebhookInput,
   ListFormsQuery,
   ListSubmissionsQuery,
   PaginatedResult,
@@ -18,6 +22,8 @@ import type {
   UpdateFormInput,
   UpdateTenantInput,
   UpdateUserInput,
+  UpdateWebhookDeliveryInput,
+  UpdateWebhookInput,
 } from '../types.ts';
 
 function toPublicUser(user: StoredUser): PublicUser {
@@ -42,6 +48,8 @@ export class InMemoryAppStore implements AppStore {
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly forms = new Map<string, FormSchema>();
   private readonly submissions = new Map<string, SubmissionRecord>();
+  private readonly webhooks = new Map<string, FormWebhook>();
+  private readonly webhookDeliveries = new Map<string, WebhookDelivery>();
 
   async listClients(): Promise<ClientTenant[]> {
     return [...this.clients.values()].sort((a, b) =>
@@ -112,6 +120,16 @@ export class InMemoryAppStore implements AppStore {
     for (const [subId, sub] of this.submissions.entries()) {
       if (sub.clientId === id) {
         this.submissions.delete(subId);
+      }
+    }
+    for (const [whId, wh] of this.webhooks.entries()) {
+      if (wh.clientId === id) {
+        this.webhooks.delete(whId);
+      }
+    }
+    for (const [delId, del] of this.webhookDeliveries.entries()) {
+      if (del.clientId === id) {
+        this.webhookDeliveries.delete(delId);
       }
     }
     return true;
@@ -302,6 +320,11 @@ export class InMemoryAppStore implements AppStore {
       title: input.title,
       description: input.description,
       submitButtonText: input.submitButtonText,
+      ...(input.thankYouTitle ? { thankYouTitle: input.thankYouTitle } : {}),
+      ...(input.thankYouMessage
+        ? { thankYouMessage: input.thankYouMessage }
+        : {}),
+      ...(input.redirectUrl ? { redirectUrl: input.redirectUrl } : {}),
       isPublished: input.isPublished,
       fields: structuredClone(input.fields),
       updatedAt: input.nowIso,
@@ -327,6 +350,15 @@ export class InMemoryAppStore implements AppStore {
       ...(input.submitButtonText !== undefined
         ? { submitButtonText: input.submitButtonText }
         : {}),
+      ...(input.thankYouTitle !== undefined
+        ? { thankYouTitle: input.thankYouTitle || undefined }
+        : {}),
+      ...(input.thankYouMessage !== undefined
+        ? { thankYouMessage: input.thankYouMessage || undefined }
+        : {}),
+      ...(input.redirectUrl !== undefined
+        ? { redirectUrl: input.redirectUrl || undefined }
+        : {}),
       ...(input.isPublished !== undefined
         ? { isPublished: input.isPublished }
         : {}),
@@ -346,6 +378,16 @@ export class InMemoryAppStore implements AppStore {
     for (const [subId, sub] of this.submissions.entries()) {
       if (sub.formId === formId && sub.clientId === clientId) {
         this.submissions.delete(subId);
+      }
+    }
+    for (const [whId, wh] of this.webhooks.entries()) {
+      if (wh.formId === formId && wh.clientId === clientId) {
+        this.webhooks.delete(whId);
+      }
+    }
+    for (const [delId, del] of this.webhookDeliveries.entries()) {
+      if (del.formId === formId && del.clientId === clientId) {
+        this.webhookDeliveries.delete(delId);
       }
     }
     return true;
@@ -404,5 +446,148 @@ export class InMemoryAppStore implements AppStore {
       }
     }
     return deleted;
+  }
+
+  async listFormWebhooks(
+    formId: string,
+    clientId: string,
+  ): Promise<FormWebhook[]> {
+    return [...this.webhooks.values()]
+      .filter((w) => w.formId === formId && w.clientId === clientId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async findWebhookById(
+    webhookId: string,
+    clientId: string,
+  ): Promise<FormWebhook | null> {
+    const wh = this.webhooks.get(webhookId);
+    if (!wh || wh.clientId !== clientId) return null;
+    return wh;
+  }
+
+  async createFormWebhook(input: CreateWebhookInput): Promise<FormWebhook> {
+    const webhook: FormWebhook = {
+      id: input.id,
+      formId: input.formId,
+      clientId: input.clientId,
+      name: input.name,
+      url: input.url,
+      secret: input.secret,
+      events: [...input.events],
+      isActive: input.isActive,
+      createdAt: input.nowIso,
+      updatedAt: input.nowIso,
+    };
+    this.webhooks.set(webhook.id, webhook);
+    return webhook;
+  }
+
+  async updateFormWebhook(
+    webhookId: string,
+    clientId: string,
+    input: UpdateWebhookInput,
+  ): Promise<FormWebhook | null> {
+    const existing = this.webhooks.get(webhookId);
+    if (!existing || existing.clientId !== clientId) return null;
+    const updated: FormWebhook = {
+      ...existing,
+      ...(input.name !== undefined ? { name: input.name } : {}),
+      ...(input.url !== undefined ? { url: input.url } : {}),
+      ...(input.secret !== undefined ? { secret: input.secret } : {}),
+      ...(input.events !== undefined ? { events: [...input.events] } : {}),
+      ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      updatedAt: input.nowIso,
+    };
+    this.webhooks.set(webhookId, updated);
+    return updated;
+  }
+
+  async deleteFormWebhook(
+    webhookId: string,
+    clientId: string,
+  ): Promise<boolean> {
+    const existing = this.webhooks.get(webhookId);
+    if (!existing || existing.clientId !== clientId) return false;
+    this.webhooks.delete(webhookId);
+    for (const [delId, del] of this.webhookDeliveries.entries()) {
+      if (del.webhookId === webhookId && del.clientId === clientId) {
+        this.webhookDeliveries.delete(delId);
+      }
+    }
+    return true;
+  }
+
+  async listWebhookDeliveries(
+    formId: string,
+    clientId: string,
+    limit = 50,
+  ): Promise<WebhookDelivery[]> {
+    return [...this.webhookDeliveries.values()]
+      .filter((d) => d.formId === formId && d.clientId === clientId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit);
+  }
+
+  async findWebhookDeliveryById(
+    deliveryId: string,
+    clientId: string,
+  ): Promise<WebhookDelivery | null> {
+    const delivery = this.webhookDeliveries.get(deliveryId);
+    if (!delivery || delivery.clientId !== clientId) return null;
+    return delivery;
+  }
+
+  async createWebhookDelivery(
+    input: CreateWebhookDeliveryInput,
+  ): Promise<WebhookDelivery> {
+    const delivery: WebhookDelivery = {
+      id: input.id,
+      webhookId: input.webhookId,
+      formId: input.formId,
+      clientId: input.clientId,
+      submissionId: input.submissionId,
+      eventType: input.eventType,
+      status: input.status,
+      requestPayload: structuredClone(input.requestPayload),
+      responseStatus: null,
+      responseBody: null,
+      errorMessage: null,
+      attemptCount: input.attemptCount ?? 1,
+      createdAt: input.nowIso,
+      completedAt: null,
+    };
+    this.webhookDeliveries.set(delivery.id, delivery);
+    return delivery;
+  }
+
+  async updateWebhookDelivery(
+    deliveryId: string,
+    clientId: string,
+    input: UpdateWebhookDeliveryInput,
+  ): Promise<WebhookDelivery | null> {
+    const existing = this.webhookDeliveries.get(deliveryId);
+    if (!existing || existing.clientId !== clientId) return null;
+    const updated: WebhookDelivery = {
+      ...existing,
+      ...(input.status !== undefined ? { status: input.status } : {}),
+      ...(input.responseStatus !== undefined
+        ? { responseStatus: input.responseStatus }
+        : {}),
+      ...(input.responseBody !== undefined
+        ? { responseBody: input.responseBody }
+        : {}),
+      ...(input.errorMessage !== undefined
+        ? { errorMessage: input.errorMessage }
+        : {}),
+      ...(input.attemptCount !== undefined
+        ? { attemptCount: input.attemptCount }
+        : {}),
+      ...(input.completedAt !== undefined
+        ? { completedAt: input.completedAt }
+        : {}),
+    };
+    this.webhookDeliveries.set(deliveryId, updated);
+    return updated;
   }
 }

@@ -965,10 +965,12 @@ export function Label({
 }
 
 export type BadgeVariant = 'neutral' | 'success' | 'warning' | 'danger';
+export type BadgeSize = 'default' | 'sm';
 
 export interface BadgeProps {
   children: ReactNode;
   variant?: BadgeVariant;
+  size?: BadgeSize;
   className?: string;
   title?: string;
 }
@@ -984,9 +986,15 @@ const BADGE_VARIANTS: Record<BadgeVariant, string> = {
     'text-rose-700 border-rose-200 bg-rose-50 dark:text-rose-400 dark:border-rose-900/60 dark:bg-rose-950/40',
 };
 
+const BADGE_SIZES: Record<BadgeSize, string> = {
+  default: 'px-1.5 py-0.5 text-xs',
+  sm: 'px-1.5 py-0.5 text-[10px] leading-none',
+};
+
 export function Badge({
   children,
   variant = 'neutral',
+  size = 'default',
   className,
   title,
 }: BadgeProps) {
@@ -994,7 +1002,8 @@ export function Badge({
     <span
       title={title}
       className={cn(
-        'inline-flex items-center px-1.5 py-0.5 rounded-sm border font-mono text-xs uppercase tracking-wider',
+        'inline-flex items-center rounded-sm border font-mono uppercase tracking-wider',
+        BADGE_SIZES[size],
         BADGE_VARIANTS[variant],
         className,
       )}
@@ -1107,7 +1116,7 @@ export function FilterDropdown({
         onClick={toggleOpen}
         onKeyDown={handleTriggerKeyDown}
         className={cn(
-          'inline-flex items-center h-9 rounded-md border px-2.5 gap-1.5 text-xs transition-colors duration-150 cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/25',
+          'inline-flex items-center max-w-full h-9 rounded-md border px-2.5 gap-1.5 text-xs transition-colors duration-150 cursor-pointer select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/25',
           isActive
             ? 'border-emerald-300 bg-emerald-50/50 text-emerald-950 hover:bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-950/60'
             : 'border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50 hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800/70 dark:hover:border-zinc-700',
@@ -1179,7 +1188,7 @@ export function PageContainer({
   className?: string;
 }) {
   return (
-    <div className={cn('w-full max-w-[1440px] mx-auto space-y-4', className)}>
+    <div className={cn('w-full min-w-0 max-w-[1440px] mx-auto space-y-4', className)}>
       {children}
     </div>
   );

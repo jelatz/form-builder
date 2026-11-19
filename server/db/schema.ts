@@ -4,6 +4,7 @@ import {
   check,
   foreignKey,
   index,
+  integer,
   jsonb,
   pgTable,
   text,
@@ -11,7 +12,10 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
-import type { FormField } from '../../src/domain/form-schema/types.ts';
+import type {
+  FormField,
+  WebhookEventType,
+} from '../../src/domain/form-schema/types.ts';
 
 export const clients = pgTable('clients', {
   id: text('id').primaryKey(),
@@ -138,5 +142,79 @@ export const submissions = pgTable(
       table.formId,
       table.submittedAt,
     ),
+  ],
+);
+
+export const formWebhooks = pgTable(
+  'form_webhooks',
+  {
+    id: text('id').primaryKey(),
+    formId: text('form_id').notNull(),
+    clientId: text('client_id').notNull(),
+    name: text('name').notNull(),
+    url: text('url').notNull(),
+    secret: text('secret').notNull(),
+    events: jsonb('events')
+      .$type<WebhookEventType[]>()
+      .notNull()
+      .default(['submission.created']),
+    isActive: boolean('is_active').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.formId, table.clientId],
+      foreignColumns: [forms.id, forms.clientId],
+      name: 'form_webhooks_form_client_fk',
+    }).onDelete('cascade'),
+    index('form_webhooks_client_form_idx').on(table.clientId, table.formId),
+  ],
+);
+
+export const webhookDeliveries = pgTable(
+  'webhook_deliveries',
+  {
+    id: text('id').primaryKey(),
+    webhookId: text('webhook_id')
+      .notNull()
+      .references(() => formWebhooks.id, { onDelete: 'cascade' }),
+    formId: text('form_id').notNull(),
+    clientId: text('client_id').notNull(),
+    submissionId: text('submission_id'),
+    eventType: text('event_type', {
+      enum: ['submission.created', 'webhook.test'],
+    }).notNull(),
+    status: text('status', {
+      enum: ['queued', 'running', 'completed', 'failed'],
+    })
+      .notNull()
+      .default('queued'),
+    requestPayload: jsonb('request_payload')
+      .$type<Record<string, unknown>>()
+      .notNull(),
+    responseStatus: integer('response_status'),
+    responseBody: text('response_body'),
+    errorMessage: text('error_message'),
+    attemptCount: integer('attempt_count').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp('completed_at', {
+      withTimezone: true,
+      mode: 'string',
+    }),
+  },
+  (table) => [
+    index('webhook_deliveries_client_form_date_idx').on(
+      table.clientId,
+      table.formId,
+      table.createdAt,
+    ),
+    index('webhook_deliveries_webhook_id_idx').on(table.webhookId),
   ],
 );

@@ -103,6 +103,31 @@ function renderTileIcon(
           />
         </svg>
       );
+    case 'section':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" className={iconClass}>
+          <rect
+            x="3"
+            y="4"
+            width="18"
+            height="16"
+            rx="2"
+            stroke="currentColor"
+            strokeWidth="1.7"
+          />
+          <path
+            d="M3 9.5h18"
+            stroke="currentColor"
+            strokeWidth="1.6"
+          />
+          <path
+            d="M7 6.8h6M7 13.5h10M7 16.5h6"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+      );
     case 'user':
       return (
         <svg viewBox="0 0 24 24" fill="none" className={iconClass}>

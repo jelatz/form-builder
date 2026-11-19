@@ -1,14 +1,19 @@
 import { and, asc, desc, eq, gt, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type {
   ClientTenant,
+  FormField,
   FormSchema,
+  FormWebhook,
   SubmissionRecord,
+  WebhookDelivery,
 } from '../../src/domain/form-schema/types.ts';
 import type {
   AuthContext,
   CreateFormInput,
   CreateTenantInput,
   CreateUserInput,
+  CreateWebhookDeliveryInput,
+  CreateWebhookInput,
   ListFormsQuery,
   ListSubmissionsQuery,
   PaginatedResult,
@@ -18,10 +23,24 @@ import type {
   UpdateFormInput,
   UpdateTenantInput,
   UpdateUserInput,
+  UpdateWebhookDeliveryInput,
+  UpdateWebhookInput,
 } from '../types.ts';
 import type { NeonDb } from './client.ts';
-import { clients, forms, sessions, submissions, users } from './schema.ts';
+import {
+  clients,
+  formWebhooks,
+  forms,
+  sessions,
+  submissions,
+  users,
+  webhookDeliveries,
+} from './schema.ts';
 import type { AppStore } from './store.ts';
+
+export function escapeLikePattern(term: string): string {
+  return term.replace(/[\\%_]/g, '\\$&');
+}
 
 function toClientTenant(row: typeof clients.$inferSelect): ClientTenant {
   return {
@@ -53,7 +72,44 @@ function toStoredUser(row: typeof users.$inferSelect): StoredUser {
   };
 }
 
+function applyPostSubmitMetadataToFields(
+  fields: FormField[],
+  meta: {
+    thankYouTitle?: string;
+    thankYouMessage?: string;
+    redirectUrl?: string;
+  },
+): FormField[] {
+  const hasMetaUpdate =
+    meta.thankYouTitle !== undefined ||
+    meta.thankYouMessage !== undefined ||
+    meta.redirectUrl !== undefined;
+  if (!hasMetaUpdate) return fields;
+
+  const sectionIndex = fields.findIndex((f) => f.type === 'section');
+  if (sectionIndex === -1) return fields;
+
+  const target = fields[sectionIndex];
+  if (!target || target.type !== 'section') return fields;
+
+  const nextSection = {
+    ...target,
+    ...(meta.thankYouTitle !== undefined
+      ? { thankYouTitle: meta.thankYouTitle || undefined }
+      : {}),
+    ...(meta.thankYouMessage !== undefined
+      ? { thankYouMessage: meta.thankYouMessage || undefined }
+      : {}),
+    ...(meta.redirectUrl !== undefined
+      ? { redirectUrl: meta.redirectUrl || undefined }
+      : {}),
+  };
+
+  return fields.map((f, idx) => (idx === sectionIndex ? nextSection : f));
+}
+
 function toFormSchema(row: typeof forms.$inferSelect): FormSchema {
+  const carrier = row.fields.find((f) => f.type === 'section');
   return {
     id: row.id,
     clientId: row.clientId,
@@ -61,6 +117,18 @@ function toFormSchema(row: typeof forms.$inferSelect): FormSchema {
     title: row.title,
     description: row.description ?? undefined,
     submitButtonText: row.submitButtonText ?? undefined,
+    thankYouTitle:
+      carrier?.type === 'section' && carrier.thankYouTitle
+        ? carrier.thankYouTitle
+        : undefined,
+    thankYouMessage:
+      carrier?.type === 'section' && carrier.thankYouMessage
+        ? carrier.thankYouMessage
+        : undefined,
+    redirectUrl:
+      carrier?.type === 'section' && carrier.redirectUrl
+        ? carrier.redirectUrl
+        : undefined,
     isPublished: row.isPublished,
     fields: row.fields,
     updatedAt: row.updatedAt,
@@ -76,6 +144,42 @@ function toSubmissionRecord(
     clientId: row.clientId,
     values: row.values,
     submittedAt: row.submittedAt,
+  };
+}
+
+function toFormWebhook(row: typeof formWebhooks.$inferSelect): FormWebhook {
+  return {
+    id: row.id,
+    formId: row.formId,
+    clientId: row.clientId,
+    name: row.name,
+    url: row.url,
+    secret: row.secret,
+    events: row.events,
+    isActive: row.isActive,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toWebhookDelivery(
+  row: typeof webhookDeliveries.$inferSelect,
+): WebhookDelivery {
+  return {
+    id: row.id,
+    webhookId: row.webhookId,
+    formId: row.formId,
+    clientId: row.clientId,
+    submissionId: row.submissionId,
+    eventType: row.eventType,
+    status: row.status,
+    requestPayload: row.requestPayload,
+    responseStatus: row.responseStatus,
+    responseBody: row.responseBody,
+    errorMessage: row.errorMessage,
+    attemptCount: row.attemptCount,
+    createdAt: row.createdAt,
+    completedAt: row.completedAt,
   };
 }
 
@@ -314,7 +418,7 @@ export class NeonDrizzleStore implements AppStore {
       conditions.push(eq(forms.clientId, query.clientId));
     }
     if (query?.search?.trim()) {
-      const pattern = `%${query.search.trim()}%`;
+      const pattern = `%${escapeLikePattern(query.search.trim())}%`;
       conditions.push(
         sql`(${forms.title} ILIKE ${pattern} OR ${forms.slug} ILIKE ${pattern})`,
       );
@@ -384,6 +488,11 @@ export class NeonDrizzleStore implements AppStore {
   }
 
   async createForm(input: CreateFormInput): Promise<FormSchema> {
+    const hydratedFields = applyPostSubmitMetadataToFields(input.fields, {
+      thankYouTitle: input.thankYouTitle,
+      thankYouMessage: input.thankYouMessage,
+      redirectUrl: input.redirectUrl,
+    });
     const [row] = await this.db
       .insert(forms)
       .values({
@@ -394,7 +503,7 @@ export class NeonDrizzleStore implements AppStore {
         description: input.description ?? null,
         submitButtonText: input.submitButtonText ?? null,
         isPublished: input.isPublished,
-        fields: input.fields,
+        fields: hydratedFields,
         createdAt: input.nowIso,
         updatedAt: input.nowIso,
       })
@@ -417,7 +526,27 @@ export class NeonDrizzleStore implements AppStore {
       patch.submitButtonText = input.submitButtonText;
     }
     if (input.isPublished !== undefined) patch.isPublished = input.isPublished;
-    if (input.fields !== undefined) patch.fields = input.fields;
+
+    const hasPostSubmitUpdate =
+      input.thankYouTitle !== undefined ||
+      input.thankYouMessage !== undefined ||
+      input.redirectUrl !== undefined;
+
+    if (input.fields !== undefined) {
+      patch.fields = applyPostSubmitMetadataToFields(input.fields, {
+        thankYouTitle: input.thankYouTitle,
+        thankYouMessage: input.thankYouMessage,
+        redirectUrl: input.redirectUrl,
+      });
+    } else if (hasPostSubmitUpdate) {
+      const existing = await this.findFormById(formId, clientId);
+      if (!existing) return null;
+      patch.fields = applyPostSubmitMetadataToFields(existing.fields, {
+        thankYouTitle: input.thankYouTitle,
+        thankYouMessage: input.thankYouMessage,
+        redirectUrl: input.redirectUrl,
+      });
+    }
 
     const [row] = await this.db
       .update(forms)
@@ -446,7 +575,7 @@ export class NeonDrizzleStore implements AppStore {
       conditions.push(eq(submissions.formId, query.formId));
     }
     if (query.search?.trim()) {
-      const pattern = `%${query.search.trim()}%`;
+      const pattern = `%${escapeLikePattern(query.search.trim())}%`;
       conditions.push(
         sql`(${submissions.id} ILIKE ${pattern} OR ${submissions.values}::text ILIKE ${pattern})`,
       );
@@ -516,5 +645,186 @@ export class NeonDrizzleStore implements AppStore {
       )
       .returning({ id: submissions.id });
     return rows.length;
+  }
+
+  async listFormWebhooks(
+    formId: string,
+    clientId: string,
+  ): Promise<FormWebhook[]> {
+    const rows = await this.db
+      .select()
+      .from(formWebhooks)
+      .where(
+        and(
+          eq(formWebhooks.formId, formId),
+          eq(formWebhooks.clientId, clientId),
+        ),
+      )
+      .orderBy(desc(formWebhooks.createdAt));
+    return rows.map(toFormWebhook);
+  }
+
+  async findWebhookById(
+    webhookId: string,
+    clientId: string,
+  ): Promise<FormWebhook | null> {
+    const rows = await this.db
+      .select()
+      .from(formWebhooks)
+      .where(
+        and(
+          eq(formWebhooks.id, webhookId),
+          eq(formWebhooks.clientId, clientId),
+        ),
+      )
+      .limit(1);
+    return rows[0] ? toFormWebhook(rows[0]) : null;
+  }
+
+  async createFormWebhook(input: CreateWebhookInput): Promise<FormWebhook> {
+    const [row] = await this.db
+      .insert(formWebhooks)
+      .values({
+        id: input.id,
+        formId: input.formId,
+        clientId: input.clientId,
+        name: input.name,
+        url: input.url,
+        secret: input.secret,
+        events: input.events,
+        isActive: input.isActive,
+        createdAt: input.nowIso,
+        updatedAt: input.nowIso,
+      })
+      .returning();
+    return toFormWebhook(row!);
+  }
+
+  async updateFormWebhook(
+    webhookId: string,
+    clientId: string,
+    input: UpdateWebhookInput,
+  ): Promise<FormWebhook | null> {
+    const patch: Partial<typeof formWebhooks.$inferInsert> = {
+      updatedAt: input.nowIso,
+    };
+    if (input.name !== undefined) patch.name = input.name;
+    if (input.url !== undefined) patch.url = input.url;
+    if (input.secret !== undefined) patch.secret = input.secret;
+    if (input.events !== undefined) patch.events = input.events;
+    if (input.isActive !== undefined) patch.isActive = input.isActive;
+
+    const [row] = await this.db
+      .update(formWebhooks)
+      .set(patch)
+      .where(
+        and(
+          eq(formWebhooks.id, webhookId),
+          eq(formWebhooks.clientId, clientId),
+        ),
+      )
+      .returning();
+    return row ? toFormWebhook(row) : null;
+  }
+
+  async deleteFormWebhook(
+    webhookId: string,
+    clientId: string,
+  ): Promise<boolean> {
+    const rows = await this.db
+      .delete(formWebhooks)
+      .where(
+        and(
+          eq(formWebhooks.id, webhookId),
+          eq(formWebhooks.clientId, clientId),
+        ),
+      )
+      .returning({ id: formWebhooks.id });
+    return rows.length > 0;
+  }
+
+  async listWebhookDeliveries(
+    formId: string,
+    clientId: string,
+    limit = 50,
+  ): Promise<WebhookDelivery[]> {
+    const rows = await this.db
+      .select()
+      .from(webhookDeliveries)
+      .where(
+        and(
+          eq(webhookDeliveries.formId, formId),
+          eq(webhookDeliveries.clientId, clientId),
+        ),
+      )
+      .orderBy(desc(webhookDeliveries.createdAt))
+      .limit(limit);
+    return rows.map(toWebhookDelivery);
+  }
+
+  async findWebhookDeliveryById(
+    deliveryId: string,
+    clientId: string,
+  ): Promise<WebhookDelivery | null> {
+    const rows = await this.db
+      .select()
+      .from(webhookDeliveries)
+      .where(
+        and(
+          eq(webhookDeliveries.id, deliveryId),
+          eq(webhookDeliveries.clientId, clientId),
+        ),
+      )
+      .limit(1);
+    return rows[0] ? toWebhookDelivery(rows[0]) : null;
+  }
+
+  async createWebhookDelivery(
+    input: CreateWebhookDeliveryInput,
+  ): Promise<WebhookDelivery> {
+    const [row] = await this.db
+      .insert(webhookDeliveries)
+      .values({
+        id: input.id,
+        webhookId: input.webhookId,
+        formId: input.formId,
+        clientId: input.clientId,
+        submissionId: input.submissionId,
+        eventType: input.eventType,
+        status: input.status,
+        requestPayload: input.requestPayload,
+        attemptCount: input.attemptCount ?? 1,
+        createdAt: input.nowIso,
+      })
+      .returning();
+    return toWebhookDelivery(row!);
+  }
+
+  async updateWebhookDelivery(
+    deliveryId: string,
+    clientId: string,
+    input: UpdateWebhookDeliveryInput,
+  ): Promise<WebhookDelivery | null> {
+    const patch: Partial<typeof webhookDeliveries.$inferInsert> = {};
+    if (input.status !== undefined) patch.status = input.status;
+    if (input.responseStatus !== undefined) {
+      patch.responseStatus = input.responseStatus;
+    }
+    if (input.responseBody !== undefined) patch.responseBody = input.responseBody;
+    if (input.errorMessage !== undefined) patch.errorMessage = input.errorMessage;
+    if (input.attemptCount !== undefined) patch.attemptCount = input.attemptCount;
+    if (input.completedAt !== undefined) patch.completedAt = input.completedAt;
+
+    const [row] = await this.db
+      .update(webhookDeliveries)
+      .set(patch)
+      .where(
+        and(
+          eq(webhookDeliveries.id, deliveryId),
+          eq(webhookDeliveries.clientId, clientId),
+        ),
+      )
+      .returning();
+    return row ? toWebhookDelivery(row) : null;
   }
 }

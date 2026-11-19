@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import type {
-  ClientTenant,
-  FormSchema,
-  SubmissionRecord,
+import {
+  countDataFields,
+  type ClientTenant,
+  type FormField,
+  type FormSchema,
+  type SubmissionRecord,
 } from '../../domain/form-schema';
 import {
   Badge,
@@ -30,6 +32,10 @@ export {
   type FormDetailPanelProps,
 } from './form-detail';
 export {
+  FormIntegrationsPanel,
+  type FormIntegrationsPanelProps,
+} from './form-integrations';
+export {
   GlobalSubmissionsPanel,
   type GlobalSubmissionsPanelProps,
 } from './global-submissions';
@@ -49,6 +55,9 @@ export interface TenantDashboardPanelProps {
   submissions: SubmissionRecord[];
   activeTenantId: string;
   isSuperadmin?: boolean;
+  canManageTeam?: boolean;
+  teamCount?: number;
+  onOpenTeamModal?: () => void;
   onSelectTenant: (tenantId: string, navigateToForms?: boolean) => void;
   onCreateTenant: (input: CreateTenantInputPayload) => Promise<void>;
   onOpenForm: (form: FormSchema) => void;
@@ -61,6 +70,9 @@ export function TenantDashboardPanel({
   submissions,
   activeTenantId,
   isSuperadmin = true,
+  canManageTeam = false,
+  teamCount = 0,
+  onOpenTeamModal,
   onSelectTenant,
   onCreateTenant,
   onOpenForm,
@@ -112,7 +124,7 @@ export function TenantDashboardPanel({
       form.clientId,
       (formCountByTenant.get(form.clientId) ?? 0) + 1,
     );
-    totalFieldsCount += form.fields.length;
+    totalFieldsCount += countDataFields(form.fields);
     if (!latestFormUpdatedAt || form.updatedAt > latestFormUpdatedAt) {
       latestFormUpdatedAt = form.updatedAt;
     }
@@ -198,11 +210,11 @@ export function TenantDashboardPanel({
   return (
     <main
       aria-label="Tenant Dashboard"
-      className="flex-1 overflow-y-auto p-6 bg-[#f4f5f7]"
+      className="flex-1 min-w-0 overflow-y-auto p-3 sm:p-6 bg-[#f4f5f7]"
     >
       <PageContainer>
         {/* Header & Action Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs">
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3 sm:p-4 rounded-lg border border-zinc-200 bg-white shadow-2xs">
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="neutral">
@@ -229,7 +241,7 @@ export function TenantDashboardPanel({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
             <Input
               aria-label={
                 isSuperadmin ? 'Search tenants and forms' : 'Search forms'
@@ -239,8 +251,17 @@ export function TenantDashboardPanel({
               placeholder={
                 isSuperadmin ? 'Search tenants or forms...' : 'Search forms...'
               }
-              className="h-8 w-56 text-xs"
+              className="h-8 w-full sm:w-56 text-xs"
             />
+            {!isSuperadmin && canManageTeam && onOpenTeamModal && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={onOpenTeamModal}
+              >
+                Manage Team ({teamCount})
+              </Button>
+            )}
             <Button
               size="sm"
               variant={isSuperadmin ? 'secondary' : 'primary'}
@@ -404,10 +425,10 @@ export function TenantDashboardPanel({
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-[11px] uppercase text-zinc-500">
-                      <th className="py-2.5 px-3">Tenant</th>
-                      <th className="py-2.5 px-3">Forms</th>
-                      <th className="py-2.5 px-3">Submissions</th>
-                      <th className="py-2.5 px-3">Created</th>
+                      <th scope="col" className="py-2.5 px-3">Tenant</th>
+                      <th scope="col" className="py-2.5 px-3">Forms</th>
+                      <th scope="col" className="py-2.5 px-3">Submissions</th>
+                      <th scope="col" className="py-2.5 px-3">Created</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 text-xs">
@@ -442,6 +463,7 @@ export function TenantDashboardPanel({
                                 {tenant.name}
                               </span>
                               <Badge
+                                size="sm"
                                 variant={
                                   tenant.status === 'suspended'
                                     ? 'danger'
@@ -453,8 +475,8 @@ export function TenantDashboardPanel({
                                   : 'ACTIVE'}
                               </Badge>
                               {isFiltered && (
-                                <Badge variant="success" className="gap-1">
-                                  <SelectedCheckIcon className="w-3 h-3 text-emerald-600" />
+                                <Badge size="sm" variant="success" className="gap-1">
+                                  <SelectedCheckIcon className="w-2.5 h-2.5 text-emerald-600" />
                                   FILTERED
                                 </Badge>
                               )}
@@ -464,23 +486,28 @@ export function TenantDashboardPanel({
                             </span>
                           </td>
                           <td className="py-2.5 px-3">
-                            <Badge variant="neutral">
-                              {tenantFormsCount}{' '}
-                              {tenantFormsCount === 1 ? 'form' : 'forms'}
-                            </Badge>
+                            <span
+                              className={
+                                tenantFormsCount > 0
+                                  ? 'font-mono text-xs font-medium tabular-nums text-zinc-900'
+                                  : 'font-mono text-xs tabular-nums text-zinc-500'
+                              }
+                            >
+                              {tenantFormsCount}
+                            </span>
                           </td>
                           <td className="py-2.5 px-3">
-                            <Badge
-                              variant={
+                            <span
+                              className={
                                 tenantSubmissionsCount > 0
-                                  ? 'success'
-                                  : 'neutral'
+                                  ? 'font-mono text-xs font-medium tabular-nums text-emerald-700'
+                                  : 'font-mono text-xs tabular-nums text-zinc-500'
                               }
                             >
                               {tenantSubmissionsCount}
-                            </Badge>
+                            </span>
                           </td>
-                          <td className="py-2.5 px-3 font-mono text-zinc-500 whitespace-nowrap">
+                          <td className="py-2.5 px-3 font-mono text-zinc-500 whitespace-nowrap tabular-nums">
                             {tenant.createdAt.slice(0, 10)}
                           </td>
                         </tr>
@@ -560,11 +587,11 @@ export function TenantDashboardPanel({
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-[11px] uppercase text-zinc-500">
-                    <th className="py-2.5 px-3">Form</th>
-                    {isSuperadmin && <th className="py-2.5 px-3">Tenant</th>}
-                    <th className="py-2.5 px-3">Fields</th>
-                    <th className="py-2.5 px-3">Submissions</th>
-                    <th className="py-2.5 px-3">Updated</th>
+                    <th scope="col" className="py-2.5 px-3">Form</th>
+                    {isSuperadmin && <th scope="col" className="py-2.5 px-3">Tenant</th>}
+                    <th scope="col" className="py-2.5 px-3">Fields</th>
+                    <th scope="col" className="py-2.5 px-3">Submissions</th>
+                    <th scope="col" className="py-2.5 px-3">Updated</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 text-xs">
@@ -573,6 +600,7 @@ export function TenantDashboardPanel({
                     const isFormActive =
                       form.isPublished !== false &&
                       tenant?.status !== 'suspended';
+                    const dataFieldCount = countDataFields(form.fields);
                     const formSubCount =
                       submissionCountByFormKey.get(
                         `${form.clientId}::${form.id}`,
@@ -597,6 +625,7 @@ export function TenantDashboardPanel({
                               {form.title}
                             </span>
                             <Badge
+                              size="sm"
                               variant={isFormActive ? 'success' : 'warning'}
                               className="shrink-0"
                               title={
@@ -624,19 +653,28 @@ export function TenantDashboardPanel({
                           </td>
                         )}
                         <td className="py-2.5 px-3">
-                          <Badge variant="neutral">
-                            {form.fields.length}{' '}
-                            {form.fields.length === 1 ? 'field' : 'fields'}
-                          </Badge>
+                          <span
+                            className={
+                              dataFieldCount > 0
+                                ? 'font-mono text-xs font-medium tabular-nums text-zinc-900'
+                                : 'font-mono text-xs tabular-nums text-zinc-500'
+                            }
+                          >
+                            {dataFieldCount}
+                          </span>
                         </td>
                         <td className="py-2.5 px-3">
-                          <Badge
-                            variant={formSubCount > 0 ? 'success' : 'neutral'}
+                          <span
+                            className={
+                              formSubCount > 0
+                                ? 'font-mono text-xs font-medium tabular-nums text-emerald-700'
+                                : 'font-mono text-xs tabular-nums text-zinc-500'
+                            }
                           >
                             {formSubCount}
-                          </Badge>
+                          </span>
                         </td>
-                        <td className="py-2.5 px-3 font-mono text-zinc-500 whitespace-nowrap">
+                        <td className="py-2.5 px-3 font-mono text-zinc-500 whitespace-nowrap tabular-nums">
                           {formatIsoTimestamp(form.updatedAt)}
                         </td>
                       </tr>
@@ -741,6 +779,7 @@ export interface SubmissionsPanelProps {
   tenant: ClientTenant;
   schema: FormSchema;
   submissions: SubmissionRecord[];
+  canClearAll?: boolean;
   onDeleteSubmission: (submissionId: string) => void;
   onClearFormSubmissions: () => void;
 }
@@ -749,6 +788,7 @@ export function SubmissionsPanel({
   tenant,
   schema,
   submissions,
+  canClearAll = true,
   onDeleteSubmission,
   onClearFormSubmissions,
 }: SubmissionsPanelProps) {
@@ -784,15 +824,20 @@ export function SubmissionsPanel({
       'submittedAt',
       ...dataFields.map((f) => f.id),
     ];
-    const escapeCsv = (val: unknown): string => {
-      const str = val === undefined || val === null ? '' : String(val);
+    const escapeCsv = (val: unknown, field?: FormField): string => {
+      const str =
+        val === undefined || val === null
+          ? ''
+          : typeof val === 'object'
+            ? formatSubmissionValue(val, field)
+            : String(val);
       return `"${str.replace(/"/g, '""')}"`;
     };
 
     const rows = submissions.map((sub) => [
       escapeCsv(sub.id),
       escapeCsv(sub.submittedAt),
-      ...dataFields.map((f) => escapeCsv(sub.values[f.id])),
+      ...dataFields.map((f) => escapeCsv(sub.values[f.id], f)),
     ]);
 
     const csvContent = [
@@ -846,36 +891,37 @@ export function SubmissionsPanel({
             >
               Export JSON
             </Button>
-            {confirmClearAll ? (
-              <div className="inline-flex items-center gap-1">
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => setConfirmClearAll(false)}
-                >
-                  Cancel
-                </Button>
+            {canClearAll !== false &&
+              (confirmClearAll ? (
+                <div className="inline-flex items-center gap-1">
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => setConfirmClearAll(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="danger"
+                    onClick={() => {
+                      setConfirmClearAll(false);
+                      onClearFormSubmissions();
+                    }}
+                  >
+                    Confirm Clear All
+                  </Button>
+                </div>
+              ) : (
                 <Button
                   size="xs"
                   variant="danger"
-                  onClick={() => {
-                    setConfirmClearAll(false);
-                    onClearFormSubmissions();
-                  }}
+                  disabled={submissions.length === 0}
+                  onClick={() => setConfirmClearAll(true)}
                 >
-                  Confirm Clear All
+                  Clear All
                 </Button>
-              </div>
-            ) : (
-              <Button
-                size="xs"
-                variant="danger"
-                disabled={submissions.length === 0}
-                onClick={() => setConfirmClearAll(true)}
-              >
-                Clear All
-              </Button>
-            )}
+              ))}
           </div>
         </div>
 
@@ -896,14 +942,14 @@ export function SubmissionsPanel({
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-xs uppercase text-zinc-600">
-                      <th className="py-2.5 px-3">#</th>
-                      <th className="py-2.5 px-3">Submitted At</th>
+                      <th scope="col" className="py-2.5 px-3">#</th>
+                      <th scope="col" className="py-2.5 px-3">Submitted At</th>
                       {dataFields.slice(0, 3).map((field) => (
-                        <th key={field.id} className="py-2.5 px-3 truncate">
+                        <th key={field.id} scope="col" className="py-2.5 px-3 truncate">
                           {field.label}
                         </th>
                       ))}
-                      <th className="py-2.5 px-3 text-right">Action</th>
+                      <th scope="col" className="py-2.5 px-3 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 text-xs">
@@ -920,10 +966,10 @@ export function SubmissionsPanel({
                               : 'hover:bg-zinc-50 text-zinc-700 cursor-pointer'
                           }
                         >
-                          <td className="py-2.5 px-3 font-mono text-zinc-500">
+                          <td className="py-2.5 px-3 font-mono text-zinc-500 tabular-nums">
                             {idx + 1}
                           </td>
-                          <td className="py-2.5 px-3 font-mono text-zinc-500 whitespace-nowrap">
+                          <td className="py-2.5 px-3 font-mono text-zinc-500 whitespace-nowrap tabular-nums">
                             {formatIsoTimestamp(sub.submittedAt)}
                           </td>
                           {dataFields.slice(0, 3).map((field) => (
@@ -931,7 +977,7 @@ export function SubmissionsPanel({
                               key={field.id}
                               className="py-2.5 px-3 max-w-[160px] truncate"
                             >
-                              {formatSubmissionValue(sub.values[field.id])}
+                              {formatSubmissionValue(sub.values[field.id], field)}
                             </td>
                           ))}
                           <td
@@ -1009,7 +1055,7 @@ export function SubmissionsPanel({
                         {field.label}
                       </span>
                       <p className="text-xs text-zinc-900 break-all">
-                        {formatSubmissionValue(selectedRecord.values[field.id])}
+                        {formatSubmissionValue(selectedRecord.values[field.id], field)}
                       </p>
                     </div>
                   ))}
@@ -1164,7 +1210,7 @@ export function FormsDirectoryPanel({
       return a.title.localeCompare(b.title);
     }
     if (sortBy === 'fields') {
-      return b.fields.length - a.fields.length;
+      return countDataFields(b.fields) - countDataFields(a.fields);
     }
     if (sortBy === 'submissions') {
       const aCount = submissionCountsByFormId.get(`${a.clientId}::${a.id}`) ?? 0;
@@ -1212,11 +1258,12 @@ export function FormsDirectoryPanel({
     },
     ...availableFormsForFilter.map((f) => {
       const tenant = tenantMap.get(f.clientId);
+      const fc = countDataFields(f.fields);
       return {
         value: f.id,
         label: f.title,
         description: tenantFilter === 'ALL' ? (tenant?.name ?? undefined) : undefined,
-        meta: `${f.fields.length} ${f.fields.length === 1 ? 'field' : 'fields'}`,
+        meta: `${fc} ${fc === 1 ? 'field' : 'fields'}`,
       };
     }),
   ];
@@ -1312,6 +1359,7 @@ export function FormsDirectoryPanel({
               size="default"
               variant="primary"
               onClick={handleOpenCreateModal}
+              disabled={tenants.length === 0}
             >
               + New Form
             </Button>
@@ -1553,17 +1601,21 @@ export function FormsDirectoryPanel({
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-xs uppercase text-zinc-600">
-                    <th className="py-2.5 px-3">Form Title</th>
-                    <th className="py-2.5 px-3">Tenant</th>
-                    <th className="py-2.5 px-3">Fields</th>
-                    <th className="py-2.5 px-3">Submissions</th>
-                    <th className="py-2.5 px-3">Updated</th>
+                    <th scope="col" className="py-2.5 px-3">Form Title</th>
+                    <th scope="col" className="py-2.5 px-3">Tenant</th>
+                    <th scope="col" className="py-2.5 px-3">Fields</th>
+                    <th scope="col" className="py-2.5 px-3">Submissions</th>
+                    <th scope="col" className="py-2.5 px-3">Updated</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 text-xs">
                   {sortedForms.map((form) => {
                     const tenant = tenantMap.get(form.clientId);
                     const isActive = form.id === activeFormId;
+                    const isFormActive =
+                      form.isPublished !== false &&
+                      tenant?.status !== 'suspended';
+                    const dataFieldCount = countDataFields(form.fields);
                     const formSubmissionsCount =
                       submissionCountsByFormId.get(
                         `${form.clientId}::${form.id}`,
@@ -1591,9 +1643,20 @@ export function FormsDirectoryPanel({
                             <span className="font-medium text-zinc-900">
                               {form.title}
                             </span>
-                            {isActive && (
-                              <Badge variant="success">ACTIVE</Badge>
-                            )}
+                            <Badge
+                              size="sm"
+                              variant={isFormActive ? 'success' : 'warning'}
+                              className="shrink-0"
+                              title={
+                                form.isPublished === false
+                                  ? 'Form is unpublished (not accepting public responses)'
+                                  : tenant?.status === 'suspended'
+                                    ? 'Tenant workspace is suspended (not accepting public responses)'
+                                    : 'Form is published and accepting public responses'
+                              }
+                            >
+                              {isFormActive ? 'ACTIVE' : 'INACTIVE'}
+                            </Badge>
                           </div>
                           {form.description && (
                             <p className="text-xs text-zinc-500 mt-0.5 line-clamp-1 max-w-xs">
@@ -1609,23 +1672,30 @@ export function FormsDirectoryPanel({
                         </td>
 
                         <td className="py-3 px-3">
-                          <Badge variant="neutral">
-                            {form.fields.length}{' '}
-                            {form.fields.length === 1 ? 'field' : 'fields'}
-                          </Badge>
+                          <span
+                            className={
+                              dataFieldCount > 0
+                                ? 'font-mono text-xs font-medium tabular-nums text-zinc-900'
+                                : 'font-mono text-xs tabular-nums text-zinc-500'
+                            }
+                          >
+                            {dataFieldCount}
+                          </span>
                         </td>
 
                         <td className="py-3 px-3">
-                          <Badge
-                            variant={
-                              formSubmissionsCount > 0 ? 'success' : 'neutral'
+                          <span
+                            className={
+                              formSubmissionsCount > 0
+                                ? 'font-mono text-xs font-medium tabular-nums text-emerald-700'
+                                : 'font-mono text-xs tabular-nums text-zinc-500'
                             }
                           >
                             {formSubmissionsCount}
-                          </Badge>
+                          </span>
                         </td>
 
-                        <td className="py-3 px-3 font-mono text-zinc-500">
+                        <td className="py-3 px-3 font-mono text-zinc-500 whitespace-nowrap tabular-nums">
                           {form.updatedAt.slice(0, 16).replace('T', ' ')}
                         </td>
                       </tr>

@@ -1,7 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import type { AppStore } from '../../db/store.ts';
 import type { EmailService } from '../../lib/email.ts';
-import { requireSuperadmin } from '../../middleware/rbac.ts';
+import {
+  requireSuperadmin,
+  requireTenantAdminScope,
+} from '../../middleware/rbac.ts';
 import {
   createTenantAction,
   createTenantUserAction,
@@ -225,4 +228,149 @@ export function registerAdminRoutes(
     });
     return reply.code(200).send(result);
   });
+
+  // Tenant-scoped self-service team management (superadmin or tenant_admin)
+  app.get<{ Params: { clientId: string } }>(
+    '/api/tenants/:clientId/users',
+    async (request, reply) => {
+      const scope = requireTenantAdminScope(
+        request,
+        reply,
+        request.params.clientId,
+      );
+      if (!scope) return;
+      const users = await listUsersAction(store, scope.clientId);
+      return reply.code(200).send({ users });
+    },
+  );
+
+  app.post<{ Params: { clientId: string } }>(
+    '/api/tenants/:clientId/users',
+    async (request, reply) => {
+      const scope = requireTenantAdminScope(
+        request,
+        reply,
+        request.params.clientId,
+      );
+      if (!scope) return;
+
+      const rawBody =
+        typeof request.body === 'object' &&
+        request.body !== null &&
+        !Array.isArray(request.body)
+          ? (request.body as Record<string, unknown>)
+          : {};
+      const parsed = validateCreateTenantUserDto({
+        ...rawBody,
+        clientId: scope.clientId,
+      });
+      if (!parsed.ok) {
+        return reply
+          .code(400)
+          .send({ error: parsed.error, fieldErrors: parsed.fieldErrors });
+      }
+      const result = await createTenantUserAction(store, parsed.data);
+      if (!result.ok) {
+        return reply.code(result.statusCode).send({ error: result.error });
+      }
+      return reply.code(201).send({ user: result.data });
+    },
+  );
+
+  app.patch<{ Params: { clientId: string; userId: string } }>(
+    '/api/tenants/:clientId/users/:userId',
+    async (request, reply) => {
+      const scope = requireTenantAdminScope(
+        request,
+        reply,
+        request.params.clientId,
+      );
+      if (!scope) return;
+
+      const target = await store.findUserById(request.params.userId);
+      if (!target || target.clientId !== scope.clientId) {
+        return reply.code(404).send({ error: 'User not found.' });
+      }
+
+      const parsed = validateUpdateTenantUserDto(request.body);
+      if (!parsed.ok) {
+        return reply
+          .code(400)
+          .send({ error: parsed.error, fieldErrors: parsed.fieldErrors });
+      }
+      const result = await updateTenantUserAction(
+        store,
+        request.params.userId,
+        parsed.data,
+      );
+      if (!result.ok) {
+        return reply.code(result.statusCode).send({ error: result.error });
+      }
+      return reply.code(200).send({ user: result.data });
+    },
+  );
+
+  app.post<{ Params: { clientId: string; userId: string } }>(
+    '/api/tenants/:clientId/users/:userId/reset-credentials',
+    async (request, reply) => {
+      const scope = requireTenantAdminScope(
+        request,
+        reply,
+        request.params.clientId,
+      );
+      if (!scope) return;
+
+      const target = await store.findUserById(request.params.userId);
+      if (!target || target.clientId !== scope.clientId) {
+        return reply.code(404).send({ error: 'User not found.' });
+      }
+
+      const parsed = validateResetUserCredentialsDto(request.body);
+      if (!parsed.ok) {
+        return reply
+          .code(400)
+          .send({ error: parsed.error, fieldErrors: parsed.fieldErrors });
+      }
+      const result = await resetTenantUserCredentialsAction(
+        store,
+        request.params.userId,
+        parsed.data,
+        {
+          emailService: options.emailService,
+          appOrigin: options.appOrigin,
+        },
+      );
+      if (!result.ok) {
+        return reply.code(result.statusCode).send({ error: result.error });
+      }
+      return reply.code(200).send(result.data);
+    },
+  );
+
+  app.delete<{ Params: { clientId: string; userId: string } }>(
+    '/api/tenants/:clientId/users/:userId',
+    async (request, reply) => {
+      const scope = requireTenantAdminScope(
+        request,
+        reply,
+        request.params.clientId,
+      );
+      if (!scope) return;
+
+      const target = await store.findUserById(request.params.userId);
+      if (!target || target.clientId !== scope.clientId) {
+        return reply.code(404).send({ error: 'User not found.' });
+      }
+
+      const result = await deleteTenantUserAction(
+        store,
+        request.params.userId,
+        scope.auth.user.id,
+      );
+      if (!result.ok) {
+        return reply.code(result.statusCode).send({ error: result.error });
+      }
+      return reply.code(200).send(result.data);
+    },
+  );
 }

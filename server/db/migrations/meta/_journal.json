@@ -8,6 +8,13 @@
       "when": 1794738826767,
       "tag": "0000_natural_ares",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795095654850,
+      "tag": "0001_mean_norman_osborn",
+      "breakpoints": true
     }
   ]
 }

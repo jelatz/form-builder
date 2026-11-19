@@ -32,10 +32,10 @@ export const selectFieldDefinition: FieldDefinition<'select'> = {
     >
       <Select
         id={field.id}
+        aria-label={field.label || 'Select Option'}
         value={typeof value === 'string' ? value : ''}
         onValueChange={(nextValue) => onChange(nextValue)}
         placeholder={field.placeholder ?? '-Select-'}
-        menuHeading={field.label || 'Select Option'}
         disabled={disabled}
         hasError={Boolean(error)}
         options={[

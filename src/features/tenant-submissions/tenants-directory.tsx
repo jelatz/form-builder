@@ -293,7 +293,7 @@ export function TenantsDirectoryPanel({
   return (
     <main
       aria-label="Tenants Directory"
-      className="flex-1 overflow-y-auto p-6 bg-[#f4f5f7]"
+      className="flex-1 min-w-0 overflow-y-auto p-3 sm:p-6 bg-[#f4f5f7]"
     >
       <PageContainer>
         {/* Page Header Row */}
@@ -326,7 +326,7 @@ export function TenantsDirectoryPanel({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <div className="flex flex-wrap items-center gap-2.5 min-w-0">
             <div className="inline-flex items-center h-9 px-3 rounded-md border border-zinc-200 bg-white font-mono text-xs text-zinc-600 shadow-2xs">
               Showing{' '}
               <span className="mx-1 font-semibold text-zinc-900">
@@ -399,7 +399,7 @@ export function TenantsDirectoryPanel({
             <div className="hidden lg:block h-5 w-px bg-zinc-200 shrink-0" />
 
             {/* Filter & Sort Controls */}
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 min-w-0 w-full lg:w-auto">
               <FilterDropdown
                 ariaLabel="Filter tenants by activity"
                 prefix="Activity"
@@ -533,17 +533,17 @@ export function TenantsDirectoryPanel({
             )}
           </div>
         ) : (
-          <div className="rounded-lg border border-zinc-200 bg-white shadow-2xs overflow-hidden">
-            <div className="overflow-x-auto">
+          <div className="rounded-lg border border-zinc-200 bg-white shadow-2xs overflow-hidden min-w-0">
+            <div className="overflow-x-auto max-w-full">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-xs uppercase text-zinc-600">
-                    <th className="py-2.5 px-3">Tenant</th>
-                    <th className="py-2.5 px-3">Forms</th>
-                    <th className="py-2.5 px-3">Submissions</th>
-                    <th className="py-2.5 px-3">Users</th>
-                    <th className="py-2.5 px-3">Created</th>
-                    <th className="py-2.5 px-3 text-right">Actions</th>
+                    <th scope="col" className="py-2.5 px-3">Tenant</th>
+                    <th scope="col" className="py-2.5 px-3">Forms</th>
+                    <th scope="col" className="py-2.5 px-3">Submissions</th>
+                    <th scope="col" className="py-2.5 px-3">Users</th>
+                    <th scope="col" className="py-2.5 px-3">Created</th>
+                    <th scope="col" className="py-2.5 px-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 text-xs">
@@ -574,6 +574,7 @@ export function TenantsDirectoryPanel({
                               {tenant.name}
                             </span>
                             <Badge
+                              size="sm"
                               variant={
                                 tenant.status === 'suspended'
                                   ? 'danger'
@@ -595,22 +596,28 @@ export function TenantsDirectoryPanel({
                           <button
                             type="button"
                             onClick={() => onSelectTenant(tenant.id, true)}
-                            title={`View ${formCount} forms for ${tenant.name}`}
-                            aria-label={`View ${formCount} forms for ${tenant.name}`}
-                            className="cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
+                            title={`View ${formCount} ${formCount === 1 ? 'form' : 'forms'} for ${tenant.name}`}
+                            aria-label={`View ${formCount} ${formCount === 1 ? 'form' : 'forms'} for ${tenant.name}`}
+                            className={
+                              formCount > 0
+                                ? 'inline-flex items-center px-1 -mx-1 py-0.5 rounded font-mono text-xs font-medium tabular-nums text-zinc-900 hover:text-emerald-700 dark:hover:text-emerald-400 hover:underline underline-offset-2 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40'
+                                : 'inline-flex items-center px-1 -mx-1 py-0.5 rounded font-mono text-xs tabular-nums text-zinc-500 hover:text-zinc-900 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40'
+                            }
                           >
-                            <Badge variant="neutral">
-                              {formCount} {formCount === 1 ? 'form' : 'forms'}
-                            </Badge>
+                            {formCount}
                           </button>
                         </td>
 
                         <td className="py-3 px-3">
-                          <Badge
-                            variant={submissionCount > 0 ? 'success' : 'neutral'}
+                          <span
+                            className={
+                              submissionCount > 0
+                                ? 'font-mono text-xs font-medium tabular-nums text-emerald-700'
+                                : 'font-mono text-xs tabular-nums text-zinc-500'
+                            }
                           >
                             {submissionCount}
-                          </Badge>
+                          </span>
                         </td>
 
                         <td
@@ -621,16 +628,19 @@ export function TenantsDirectoryPanel({
                           <button
                             type="button"
                             onClick={() => setManagingUsersTenantId(tenant.id)}
-                            title={`Manage logins for ${tenant.name}`}
-                            className="cursor-pointer rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40"
+                            title={`Manage logins for ${tenant.name} (${userCount} ${userCount === 1 ? 'user' : 'users'})`}
+                            aria-label={`Manage ${userCount} ${userCount === 1 ? 'user' : 'users'} for ${tenant.name}`}
+                            className={
+                              userCount > 0
+                                ? 'inline-flex items-center px-1 -mx-1 py-0.5 rounded font-mono text-xs font-medium tabular-nums text-zinc-900 hover:text-emerald-700 dark:hover:text-emerald-400 hover:underline underline-offset-2 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40'
+                                : 'inline-flex items-center px-1 -mx-1 py-0.5 rounded font-mono text-xs tabular-nums text-zinc-500 hover:text-zinc-900 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40'
+                            }
                           >
-                            <Badge variant="neutral">
-                              {userCount} {userCount === 1 ? 'user' : 'users'}
-                            </Badge>
+                            {userCount}
                           </button>
                         </td>
 
-                        <td className="py-3 px-3 font-mono text-zinc-500 whitespace-nowrap">
+                        <td className="py-3 px-3 font-mono text-zinc-500 whitespace-nowrap tabular-nums">
                           {tenant.createdAt.slice(0, 10)}
                         </td>
 
@@ -729,7 +739,7 @@ export function TenantsDirectoryPanel({
                 </tbody>
               </table>
             </div>
-            <div className="flex items-center justify-between border-t border-zinc-200 bg-zinc-50/70 px-3 py-2 text-xs text-zinc-500">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 bg-zinc-50/70 px-3 py-2 text-xs text-zinc-500">
               <span>
                 Showing <span className="font-medium text-zinc-800">1</span> to{' '}
                 <span className="font-medium text-zinc-800">

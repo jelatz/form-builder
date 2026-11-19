@@ -7,6 +7,9 @@ export interface CreateFormDto {
   slug?: string;
   description?: string;
   submitButtonText?: string;
+  thankYouTitle?: string;
+  thankYouMessage?: string;
+  redirectUrl?: string;
   isPublished: boolean;
   fields?: FormField[];
 }
@@ -16,6 +19,9 @@ export interface UpdateFormDto {
   slug?: string;
   description?: string;
   submitButtonText?: string;
+  thankYouTitle?: string;
+  thankYouMessage?: string;
+  redirectUrl?: string;
   isPublished?: boolean;
   fields?: FormField[];
 }
@@ -23,6 +29,30 @@ export interface UpdateFormDto {
 export type ValidationResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string };
+
+function validateOptionalRedirectUrl(
+  raw: unknown,
+): { ok: true; value: string } | { ok: false; error: string } {
+  if (typeof raw !== 'string') {
+    return { ok: false, error: 'redirectUrl must be a string.' };
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { ok: true, value: '' };
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return {
+        ok: false,
+        error: 'redirectUrl must use http:// or https://.',
+      };
+    }
+    return { ok: true, value: parsed.toString() };
+  } catch {
+    return { ok: false, error: 'redirectUrl must be a valid URL.' };
+  }
+}
 
 function validateFieldsPayload(
   rawFields: unknown,
@@ -62,6 +92,13 @@ export function validateCreateFormDto(
     fields = validated.fields;
   }
 
+  let redirectUrl: string | undefined;
+  if (body.redirectUrl !== undefined) {
+    const redirectRes = validateOptionalRedirectUrl(body.redirectUrl);
+    if (!redirectRes.ok) return redirectRes;
+    redirectUrl = redirectRes.value || undefined;
+  }
+
   return {
     ok: true,
     data: {
@@ -74,6 +111,15 @@ export function validateCreateFormDto(
         typeof body.submitButtonText === 'string'
           ? body.submitButtonText
           : undefined,
+      thankYouTitle:
+        typeof body.thankYouTitle === 'string'
+          ? body.thankYouTitle
+          : undefined,
+      thankYouMessage:
+        typeof body.thankYouMessage === 'string'
+          ? body.thankYouMessage
+          : undefined,
+      redirectUrl,
       isPublished:
         typeof body.isPublished === 'boolean' ? body.isPublished : true,
       fields,
@@ -117,6 +163,26 @@ export function validateUpdateFormDto(
       return { ok: false, error: 'submitButtonText must be a string.' };
     }
     data.submitButtonText = body.submitButtonText;
+  }
+
+  if (body.thankYouTitle !== undefined) {
+    if (typeof body.thankYouTitle !== 'string') {
+      return { ok: false, error: 'thankYouTitle must be a string.' };
+    }
+    data.thankYouTitle = body.thankYouTitle;
+  }
+
+  if (body.thankYouMessage !== undefined) {
+    if (typeof body.thankYouMessage !== 'string') {
+      return { ok: false, error: 'thankYouMessage must be a string.' };
+    }
+    data.thankYouMessage = body.thankYouMessage;
+  }
+
+  if (body.redirectUrl !== undefined) {
+    const redirectRes = validateOptionalRedirectUrl(body.redirectUrl);
+    if (!redirectRes.ok) return redirectRes;
+    data.redirectUrl = redirectRes.value;
   }
 
   if (body.isPublished !== undefined) {

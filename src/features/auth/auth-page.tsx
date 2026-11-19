@@ -214,7 +214,7 @@ export function AuthPage({
                     type="text"
                     autoComplete="username"
                     placeholder={
-                      isTenantLogin ? 'e.g. acme_admin' : 'superadmin or tenant user'
+                      isTenantLogin ? 'e.g. tenant_admin' : 'superadmin or tenant user'
                     }
                     value={username}
                     hasError={Boolean(fieldErrors.username)}
@@ -304,18 +304,15 @@ export function AuthPage({
 
           {/* Dev Demo Account Helper */}
           {import.meta.env.DEV &&
+            !isTenantLogin &&
             !(tenantSlug && tenantLookupStatus === 'not_found') && (
               <div className="border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/60 px-5 py-3 flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="font-mono text-[10px] uppercase tracking-wider text-zinc-400">
-                    {isTenantLogin ? 'Seeded Tenant Admin' : 'Seeded Superadmin'}
+                    Seeded Superadmin
                   </div>
                   <div className="font-mono text-xs text-zinc-700 dark:text-zinc-300 truncate">
-                    {tenantSlug === 'globex-cloud'
-                      ? 'globex_admin / globex1234'
-                      : isTenantLogin
-                        ? 'acme_admin / acme1234'
-                        : 'superadmin / admin123'}
+                    superadmin / admin123
                   </div>
                 </div>
                 <Button
@@ -323,13 +320,7 @@ export function AuthPage({
                   size="xs"
                   variant="secondary"
                   onClick={() => {
-                    if (tenantSlug === 'globex-cloud') {
-                      handleFillCredentials('globex_admin', 'globex1234');
-                    } else if (isTenantLogin) {
-                      handleFillCredentials('acme_admin', 'acme1234');
-                    } else {
-                      handleFillCredentials('superadmin', 'admin123');
-                    }
+                    handleFillCredentials('superadmin', 'admin123');
                   }}
                 >
                   Fill Credentials

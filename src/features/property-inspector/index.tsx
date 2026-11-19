@@ -14,7 +14,14 @@ export interface PropertyInspectorProps {
     patch: Partial<
       Pick<
         FormSchema,
-        'title' | 'description' | 'slug' | 'submitButtonText' | 'isPublished'
+        | 'title'
+        | 'description'
+        | 'slug'
+        | 'submitButtonText'
+        | 'thankYouTitle'
+        | 'thankYouMessage'
+        | 'redirectUrl'
+        | 'isPublished'
       >
     >,
   ) => void;
@@ -22,6 +29,58 @@ export interface PropertyInspectorProps {
   onToggleInspectorSide?: () => void;
   themeMode?: ThemeMode;
   onThemeModeChange?: (mode: ThemeMode) => void;
+}
+
+function isValidHttpUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function RedirectUrlInput({
+  initialValue,
+  onCommit,
+}: {
+  initialValue: string;
+  onCommit: (nextUrl: string) => void;
+}) {
+  const [draft, setDraft] = useState(initialValue);
+  const trimmed = draft.trim();
+  const isInvalid = trimmed !== '' && !isValidHttpUrl(trimmed);
+
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor="form_meta_redirect_url">Redirect URL (optional)</Label>
+      <Input
+        id="form_meta_redirect_url"
+        type="url"
+        value={draft}
+        hasError={isInvalid}
+        onChange={(e) => {
+          const next = e.target.value;
+          setDraft(next);
+          const nextTrimmed = next.trim();
+          if (nextTrimmed === '' || isValidHttpUrl(nextTrimmed)) {
+            onCommit(nextTrimmed);
+          }
+        }}
+        placeholder="https://client-site.com/thank-you"
+        className="font-mono text-xs"
+      />
+      {isInvalid ? (
+        <p className="text-[11px] text-rose-600">
+          Enter a full http:// or https:// URL to save redirect.
+        </p>
+      ) : (
+        <p className="text-[11px] text-zinc-500">
+          Automatically redirects respondents after public submission.
+        </p>
+      )}
+    </div>
+  );
 }
 
 export function PropertyInspector({
@@ -59,6 +118,9 @@ export function PropertyInspector({
     : 'border-l border-zinc-200';
   const showFieldInspector =
     activeTab === 'field' && Boolean(selectedField) && Boolean(bound);
+  const isOnlySection =
+    selectedField?.type === 'section' &&
+    schema.fields.filter((f) => f.type === 'section').length <= 1;
 
   return (
     <div
@@ -213,6 +275,50 @@ export function PropertyInspector({
                 </p>
               </div>
 
+              <div className="pt-3 border-t border-zinc-200 space-y-3">
+                <span className="block font-mono text-[11px] uppercase tracking-wider text-zinc-500 font-semibold">
+                  Post-Submit &amp; Redirect
+                </span>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="form_meta_thank_you_title">
+                    Confirmation Heading
+                  </Label>
+                  <Input
+                    id="form_meta_thank_you_title"
+                    value={schema.thankYouTitle ?? ''}
+                    onChange={(e) =>
+                      onUpdateMetadata({
+                        thankYouTitle: e.target.value,
+                      })
+                    }
+                    placeholder="Thank you!"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="form_meta_thank_you_message">
+                    Confirmation Message
+                  </Label>
+                  <Input
+                    id="form_meta_thank_you_message"
+                    value={schema.thankYouMessage ?? ''}
+                    onChange={(e) =>
+                      onUpdateMetadata({
+                        thankYouMessage: e.target.value,
+                      })
+                    }
+                    placeholder="Your response has been recorded."
+                  />
+                </div>
+
+                <RedirectUrlInput
+                  key={`${schema.id}_${schema.redirectUrl ?? ''}`}
+                  initialValue={schema.redirectUrl ?? ''}
+                  onCommit={(redirectUrl) => onUpdateMetadata({ redirectUrl })}
+                />
+              </div>
+
               <div className="pt-3 border-t border-zinc-200">
                 <Switch
                   id="form_meta_published"
@@ -266,15 +372,25 @@ export function PropertyInspector({
                   onClick={() => onDuplicateField(selectedField.id)}
                   className="flex-1"
                 >
-                  Duplicate Field
+                  {selectedField.type === 'section'
+                    ? 'Duplicate Section'
+                    : 'Duplicate Field'}
                 </Button>
                 <Button
                   size="sm"
                   variant="danger"
+                  disabled={isOnlySection}
+                  title={
+                    isOnlySection
+                      ? 'At least one section is required'
+                      : undefined
+                  }
                   onClick={() => onRemoveField(selectedField.id)}
                   className="flex-1"
                 >
-                  Delete Field
+                  {selectedField.type === 'section'
+                    ? 'Delete Section'
+                    : 'Delete Field'}
                 </Button>
               </div>
             </div>

@@ -45,6 +45,15 @@ export async function createTenantFormAction(
     'untitled-form',
   );
 
+  const starterSection = {
+    id: createEntityId('field_section'),
+    type: 'section' as const,
+    label: 'Section 1',
+    helperText: '',
+    required: false,
+    showLine: true,
+  };
+
   const starterField = {
     id: createEntityId('field_text'),
     type: 'text' as const,
@@ -60,8 +69,14 @@ export async function createTenantFormAction(
     title: dto.title,
     description: dto.description ?? '',
     submitButtonText: dto.submitButtonText ?? 'Submit',
+    thankYouTitle: dto.thankYouTitle,
+    thankYouMessage: dto.thankYouMessage,
+    redirectUrl: dto.redirectUrl,
     isPublished: dto.isPublished,
-    fields: dto.fields && dto.fields.length > 0 ? dto.fields : [starterField],
+    fields:
+      dto.fields && dto.fields.length > 0
+        ? dto.fields
+        : [starterSection, starterField],
     nowIso: new Date().toISOString(),
   });
 
@@ -93,6 +108,9 @@ export async function updateTenantFormAction(
     title: dto.title,
     description: dto.description,
     submitButtonText: dto.submitButtonText,
+    thankYouTitle: dto.thankYouTitle,
+    thankYouMessage: dto.thankYouMessage,
+    redirectUrl: dto.redirectUrl,
     isPublished: dto.isPublished,
     fields: dto.fields,
     nowIso: new Date().toISOString(),
@@ -128,6 +146,14 @@ export async function deleteTenantFormAction(
       submitButtonText: 'Submit',
       isPublished: true,
       fields: [
+        {
+          id: createEntityId('field_section'),
+          type: 'section',
+          label: 'Section 1',
+          helperText: '',
+          required: false,
+          showLine: true,
+        },
         {
           id: createEntityId('field_text'),
           type: 'text',

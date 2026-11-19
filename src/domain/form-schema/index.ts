@@ -1,5 +1,8 @@
 export {
   FIELD_TYPES,
+  WEBHOOK_DELIVERY_STATUSES,
+  WEBHOOK_EVENT_TYPES,
+  countDataFields,
   isFieldType,
   type AddressFieldConfig,
   type BaseFieldConfig,
@@ -12,6 +15,7 @@ export {
   type FieldType,
   type FormField,
   type FormSchema,
+  type FormWebhook,
   type GridFieldConfig,
   type NameFieldConfig,
   type NumberFieldConfig,
@@ -23,24 +27,42 @@ export {
   type SubmissionRecord,
   type TextFieldConfig,
   type TextareaFieldConfig,
+  type WebhookDelivery,
+  type WebhookDeliveryStatus,
+  type WebhookEventType,
   type WebsiteFieldConfig,
 } from './types';
 
 export {
   addField,
+  addFieldToSection,
+  addSection,
   duplicateField,
+  markFormAsDraft,
   moveField,
   moveFieldToGrid,
+  moveSection,
+  publishFormSchema,
   removeField,
+  removeSection,
   updateField,
   updateFormMetadata,
 } from './operations';
 
 export {
+  createSectionField,
+  ensureLeadingSection,
+  partitionFieldsIntoSections,
+  type FormSectionPage,
+} from './sections';
+
+export {
   createInitialFormValues,
   parseFormSchemaJson,
+  toFieldQueryKey,
   validateField,
   validateForm,
+  validateSection,
   type FormErrors,
   type FormValidationResult,
   type FormValues,

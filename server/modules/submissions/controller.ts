@@ -1,6 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import type { AppStore } from '../../db/store.ts';
-import { resolveTenantScope } from '../../middleware/rbac.ts';
+import {
+  requireTenantAdminScope,
+  resolveTenantScope,
+} from '../../middleware/rbac.ts';
+import type { WebhookHttpTransport } from '../webhooks/dispatcher.ts';
 import {
   clearFormSubmissionsAction,
   createAuthenticatedSubmissionAction,
@@ -14,6 +18,7 @@ import { validateCreateSubmissionDto } from './dto.ts';
 export function registerSubmissionsRoutes(
   app: FastifyInstance,
   store: AppStore,
+  webhookTransport?: WebhookHttpTransport,
 ): void {
   app.get<{
     Params: { clientId: string };
@@ -62,6 +67,7 @@ export function registerSubmissionsRoutes(
         scope.clientId,
         request.params.formId,
         parsed.data.values,
+        webhookTransport,
       );
       if (!result.ok) {
         return reply.code(result.statusCode).send({
@@ -93,7 +99,11 @@ export function registerSubmissionsRoutes(
   app.delete<{ Params: { clientId: string; formId: string } }>(
     '/api/tenants/:clientId/forms/:formId/submissions',
     async (request, reply) => {
-      const scope = resolveTenantScope(request, reply, request.params.clientId);
+      const scope = requireTenantAdminScope(
+        request,
+        reply,
+        request.params.clientId,
+      );
       if (!scope) return;
       const result = await clearFormSubmissionsAction(
         store,
@@ -142,6 +152,7 @@ export function registerSubmissionsRoutes(
         request.params.tenantSlug,
         request.params.formSlug,
         parsed.data.values,
+        webhookTransport,
       );
       if (!result.ok) {
         return reply.code(result.statusCode).send({

@@ -1,13 +1,17 @@
 import type {
   ClientTenant,
   FormSchema,
+  FormWebhook,
   SubmissionRecord,
+  WebhookDelivery,
 } from '../../src/domain/form-schema/types.ts';
 import type {
   AuthContext,
   CreateFormInput,
   CreateTenantInput,
   CreateUserInput,
+  CreateWebhookDeliveryInput,
+  CreateWebhookInput,
   ListFormsQuery,
   ListSubmissionsQuery,
   PaginatedResult,
@@ -17,6 +21,8 @@ import type {
   UpdateFormInput,
   UpdateTenantInput,
   UpdateUserInput,
+  UpdateWebhookDeliveryInput,
+  UpdateWebhookInput,
 } from '../types.ts';
 
 export interface AppStore {
@@ -71,4 +77,35 @@ export interface AppStore {
   createSubmission(input: SubmissionRecord): Promise<SubmissionRecord>;
   deleteSubmission(submissionId: string, clientId: string): Promise<boolean>;
   clearFormSubmissions(formId: string, clientId: string): Promise<number>;
+
+  // Webhooks & Deliveries
+  listFormWebhooks(formId: string, clientId: string): Promise<FormWebhook[]>;
+  findWebhookById(
+    webhookId: string,
+    clientId: string,
+  ): Promise<FormWebhook | null>;
+  createFormWebhook(input: CreateWebhookInput): Promise<FormWebhook>;
+  updateFormWebhook(
+    webhookId: string,
+    clientId: string,
+    input: UpdateWebhookInput,
+  ): Promise<FormWebhook | null>;
+  deleteFormWebhook(webhookId: string, clientId: string): Promise<boolean>;
+  listWebhookDeliveries(
+    formId: string,
+    clientId: string,
+    limit?: number,
+  ): Promise<WebhookDelivery[]>;
+  findWebhookDeliveryById(
+    deliveryId: string,
+    clientId: string,
+  ): Promise<WebhookDelivery | null>;
+  createWebhookDelivery(
+    input: CreateWebhookDeliveryInput,
+  ): Promise<WebhookDelivery>;
+  updateWebhookDelivery(
+    deliveryId: string,
+    clientId: string,
+    input: UpdateWebhookDeliveryInput,
+  ): Promise<WebhookDelivery | null>;
 }

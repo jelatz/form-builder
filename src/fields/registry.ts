@@ -248,6 +248,16 @@ export const ZOHO_PALETTE_CATEGORIES: ZohoPaletteCategoryGroup[] = [
         accentColor: 'amber',
         presetPatch: { label: '3-Column', columns: 3 },
       },
+      {
+        id: 'section',
+        label: 'Section',
+        type: 'section',
+        tab: 'form_fields',
+        category: 'Grid',
+        iconType: 'section',
+        accentColor: 'amber',
+        presetPatch: { showLine: true },
+      },
     ],
   },
   {

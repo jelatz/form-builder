@@ -2,7 +2,11 @@ import type {
   ClientTenant,
   FormField,
   FormSchema,
+  FormWebhook,
   SubmissionRecord,
+  WebhookDelivery,
+  WebhookDeliveryStatus,
+  WebhookEventType,
 } from '../src/domain/form-schema/types.ts';
 
 export const USER_ROLES = [
@@ -85,6 +89,9 @@ export interface CreateFormInput {
   title: string;
   description?: string;
   submitButtonText?: string;
+  thankYouTitle?: string;
+  thankYouMessage?: string;
+  redirectUrl?: string;
   isPublished: boolean;
   fields: FormField[];
   nowIso: string;
@@ -95,6 +102,9 @@ export interface UpdateFormInput {
   title?: string;
   description?: string;
   submitButtonText?: string;
+  thankYouTitle?: string;
+  thankYouMessage?: string;
+  redirectUrl?: string;
   isPublished?: boolean;
   fields?: FormField[];
   nowIso: string;
@@ -120,6 +130,51 @@ export interface PaginatedResult<T> {
   offset: number;
 }
 
+export interface CreateWebhookInput {
+  id: string;
+  formId: string;
+  clientId: string;
+  name: string;
+  url: string;
+  secret: string;
+  events: WebhookEventType[];
+  isActive: boolean;
+  nowIso: string;
+}
+
+export interface UpdateWebhookInput {
+  name?: string;
+  url?: string;
+  secret?: string;
+  events?: WebhookEventType[];
+  isActive?: boolean;
+  nowIso: string;
+}
+
+export interface CreateWebhookDeliveryInput {
+  id: string;
+  webhookId: string;
+  formId: string;
+  clientId: string;
+  submissionId: string | null;
+  eventType: WebhookEventType;
+  status: WebhookDeliveryStatus;
+  requestPayload: Record<string, unknown>;
+  attemptCount?: number;
+  nowIso: string;
+}
+
+export interface UpdateWebhookDeliveryInput {
+  status?: WebhookDeliveryStatus;
+  responseStatus?: number | null;
+  responseBody?: string | null;
+  errorMessage?: string | null;
+  attemptCount?: number;
+  completedAt?: string | null;
+}
+
 export type PersistedForm = FormSchema;
 export type PersistedTenant = ClientTenant;
 export type PersistedSubmission = SubmissionRecord;
+export type PersistedWebhook = FormWebhook;
+export type PersistedWebhookDelivery = WebhookDelivery;

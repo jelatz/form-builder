@@ -64,3 +64,29 @@ export function resolveTenantScope(
 
   return { auth, clientId: auth.user.clientId };
 }
+
+/**
+ * Enforces tenant isolation AND requires at least `tenant_admin` privileges
+ * (`superadmin` or a `tenant_admin` scoped to `requestedClientId`).
+ * Rejects `tenant_member` with HTTP 403.
+ */
+export function requireTenantAdminScope(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  requestedClientId: string,
+): { auth: AuthContext; clientId: string } | null {
+  const scope = resolveTenantScope(request, reply, requestedClientId);
+  if (!scope) return null;
+
+  if (
+    scope.auth.user.role !== 'superadmin' &&
+    scope.auth.user.role !== 'tenant_admin'
+  ) {
+    void reply
+      .code(403)
+      .send({ error: 'Tenant admin privileges required.' });
+    return null;
+  }
+
+  return scope;
+}

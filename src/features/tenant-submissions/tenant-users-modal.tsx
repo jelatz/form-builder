@@ -635,11 +635,11 @@ export function TenantUsersModal({
                             >
                               {user.displayName}
                             </span>
-                            <Badge variant="neutral">
+                            <Badge size="sm" variant="neutral">
                               {user.role === 'tenant_admin' ? 'Admin' : 'Member'}
                             </Badge>
                             {!user.isActive && (
-                              <Badge variant="danger">Disabled</Badge>
+                              <Badge size="sm" variant="danger">Disabled</Badge>
                             )}
                           </div>
                           <span className="block truncate font-mono text-xs text-zinc-500">

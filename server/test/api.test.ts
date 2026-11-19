@@ -3,6 +3,7 @@ import test from 'node:test';
 import { toSnakeCaseUsername } from '../../src/shared/lib/username.ts';
 import { buildServer } from '../app.ts';
 import { seedDatabase } from '../db/seed.ts';
+import { seedTestDatabase } from './fixtures.ts';
 import {
   createResendEmailService,
   type EmailService,
@@ -33,7 +34,7 @@ test('health check reports ok', async () => {
 
 test('auth: superadmin login sets HttpOnly cookie, portal login validates tenantSlug, logout revokes session', async () => {
   const store = new InMemoryAppStore();
-  await seedDatabase(store);
+  await seedTestDatabase(store);
   const app = await buildServer({ store, logger: false });
 
   // Superadmin global login
@@ -103,7 +104,7 @@ test('auth: superadmin login sets HttpOnly cookie, portal login validates tenant
 
 test('RBAC & tenant isolation: tenant user is blocked from /api/admin/* and other tenants, but can manage own forms', async () => {
   const store = new InMemoryAppStore();
-  await seedDatabase(store);
+  await seedTestDatabase(store);
   const app = await buildServer({ store, logger: false });
 
   // Unauthenticated blocked
@@ -199,7 +200,7 @@ test('RBAC & tenant isolation: tenant user is blocked from /api/admin/* and othe
 
 test('superadmin provisioning: create tenant & login user, disable revokes active sessions, password reset works', async () => {
   const store = new InMemoryAppStore();
-  await seedDatabase(store);
+  await seedTestDatabase(store);
   const app = await buildServer({ store, logger: false });
 
   const adminLogin = await app.inject({
@@ -304,7 +305,7 @@ test('superadmin provisioning: create tenant & login user, disable revokes activ
 
 test('public form links: validates submissions server-side (422 vs 201), honors isPublished, and scopes submissions to tenant', async () => {
   const store = new InMemoryAppStore();
-  await seedDatabase(store);
+  await seedTestDatabase(store);
   const app = await buildServer({ store, logger: false });
 
   // Tenant metadata lookup for tenant login portal
@@ -408,7 +409,7 @@ test('toSnakeCaseUsername normalizes organization names into value_one style use
 
 test('tenant creation provisions snake_case admin, generates 16-char hex password, emails it via Resend, and rolls back on failure', async () => {
   const store = new InMemoryAppStore();
-  await seedDatabase(store);
+  await seedTestDatabase(store);
 
   const sentEmails: TenantWelcomeEmailPayload[] = [];
   let shouldFailEmail = false;
@@ -463,11 +464,14 @@ test('tenant creation provisions snake_case admin, generates 16-char hex passwor
   assert.equal(createRes.statusCode, 201);
   const createdBody = createRes.json<{
     tenant: { id: string; slug: string };
+    starterForm?: unknown;
     adminUser: { id: string; username: string; role: string; password?: string; passwordHash?: string };
     emailDelivery: { status: string; provider: string; messageId?: string };
   }>();
 
   assert.equal(createdBody.tenant.slug, 'value-one');
+  assert.equal(createdBody.starterForm, undefined);
+  assert.equal((await store.listForms({ clientId: createdBody.tenant.id })).length, 0);
   assert.equal(createdBody.adminUser.username, 'value_one');
   assert.equal(createdBody.adminUser.role, 'tenant_admin');
   assert.equal(createdBody.adminUser.password, undefined);
@@ -537,6 +541,215 @@ test('tenant creation provisions snake_case admin, generates 16-char hex passwor
   await app.close();
 });
 
+test('POST /api/admin/tenants validation & RBAC: rejects invalid payloads (400), duplicate adminUsername (409), unauthenticated (401), and tenant_admin (403) with zero persistence', async () => {
+  const store = new InMemoryAppStore();
+  await seedTestDatabase(store);
+  const app = await buildServer({ store, logger: false });
+
+  const initialClients = (await store.listClients()).length;
+  const initialUsers = (await store.listUsers()).length;
+  const initialForms = (await store.listForms()).length;
+
+  // SEC-01: Unauthenticated POST /api/admin/tenants returns 401
+  const unauthRes = await app.inject({
+    method: 'POST',
+    url: '/api/admin/tenants',
+    payload: { name: 'Unauth Org', email: 'unauth@example.com' },
+  });
+  assert.equal(unauthRes.statusCode, 401);
+
+  // SEC-02: Authenticated tenant_admin POST /api/admin/tenants returns 403
+  const acmeLogin = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { username: 'acme_admin', password: 'acme1234' },
+  });
+  assert.equal(acmeLogin.statusCode, 200);
+  const acmeCookie = extractCookieHeader(acmeLogin);
+
+  const tenantAdminRes = await app.inject({
+    method: 'POST',
+    url: '/api/admin/tenants',
+    headers: { cookie: acmeCookie },
+    payload: { name: 'Blocked Org', email: 'blocked@example.com' },
+  });
+  assert.equal(tenantAdminRes.statusCode, 403);
+
+  // Superadmin login for DTO & conflict checks
+  const adminLogin = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { username: 'superadmin', password: 'admin123' },
+  });
+  assert.equal(adminLogin.statusCode, 200);
+  const adminCookie = extractCookieHeader(adminLogin);
+
+  // INP-01: Short name ("A") -> 400 with fieldErrors.name
+  const shortNameRes = await app.inject({
+    method: 'POST',
+    url: '/api/admin/tenants',
+    headers: { cookie: adminCookie },
+    payload: { name: 'A', email: 'valid@example.com' },
+  });
+  assert.equal(shortNameRes.statusCode, 400);
+  assert.ok(
+    shortNameRes.json<{ fieldErrors?: Record<string, string> }>().fieldErrors
+      ?.name,
+  );
+
+  // INP-01: Invalid adminUsername ("ab") -> 400 with fieldErrors.adminUsername
+  const invalidUsernameRes = await app.inject({
+    method: 'POST',
+    url: '/api/admin/tenants',
+    headers: { cookie: adminCookie },
+    payload: {
+      name: 'Valid Org',
+      email: 'valid@example.com',
+      adminUsername: 'ab',
+    },
+  });
+  assert.equal(invalidUsernameRes.statusCode, 400);
+  assert.ok(
+    invalidUsernameRes.json<{ fieldErrors?: Record<string, string> }>()
+      .fieldErrors?.adminUsername,
+  );
+
+  // INP-01: Null / invalid payload -> 400
+  const nullPayloadRes = await app.inject({
+    method: 'POST',
+    url: '/api/admin/tenants',
+    headers: { cookie: adminCookie, 'content-type': 'application/json' },
+    payload: 'null',
+  });
+  assert.equal(nullPayloadRes.statusCode, 400);
+
+  const missingPayloadRes = await app.inject({
+    method: 'POST',
+    url: '/api/admin/tenants',
+    headers: { cookie: adminCookie },
+  });
+  assert.equal(missingPayloadRes.statusCode, 400);
+
+  // INP-02: Duplicate explicit adminUsername -> 409
+  const duplicateUsernameRes = await app.inject({
+    method: 'POST',
+    url: '/api/admin/tenants',
+    headers: { cookie: adminCookie },
+    payload: {
+      name: 'Unique Org Name',
+      email: 'unique@example.com',
+      adminUsername: 'acme_admin',
+    },
+  });
+  assert.equal(duplicateUsernameRes.statusCode, 409);
+
+  // Zero persistence across all rejected requests
+  assert.equal((await store.listClients()).length, initialClients);
+  assert.equal((await store.listUsers()).length, initialUsers);
+  assert.equal((await store.listForms()).length, initialForms);
+
+  await app.close();
+});
+
+test('SEC-03 & DAT-01: newly provisioned tenant_admin lists empty own forms (200), is blocked from tenant_acme (403), and tenant deletion leaves zero orphan users/forms', async () => {
+  const store = new InMemoryAppStore();
+  await seedTestDatabase(store);
+
+  const initialClients = (await store.listClients()).length;
+  const initialUsers = (await store.listUsers()).length;
+  const initialForms = (await store.listForms()).length;
+
+  const sentEmails: TenantWelcomeEmailPayload[] = [];
+  const spyEmailService: EmailService = {
+    async sendTenantWelcomeEmail(payload) {
+      sentEmails.push(payload);
+      return { status: 'sent', provider: 'resend', messageId: 're_sec_dat_01' };
+    },
+  };
+
+  const app = await buildServer({
+    store,
+    logger: false,
+    emailService: spyEmailService,
+    appOrigin: 'https://forms.example.com',
+  });
+
+  const adminLogin = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { username: 'superadmin', password: 'admin123' },
+  });
+  assert.equal(adminLogin.statusCode, 200);
+  const adminCookie = extractCookieHeader(adminLogin);
+
+  const createRes = await app.inject({
+    method: 'POST',
+    url: '/api/admin/tenants',
+    headers: { cookie: adminCookie },
+    payload: {
+      name: 'Stark Labs',
+      slug: 'stark-labs',
+      email: 'tony@stark.example',
+    },
+  });
+  assert.equal(createRes.statusCode, 201);
+  const { tenant, adminUser } = createRes.json<{
+    tenant: { id: string; slug: string };
+    adminUser: { id: string; clientId: string; username: string; role: string };
+  }>();
+  assert.equal(adminUser.clientId, tenant.id);
+  assert.equal(sentEmails.length, 1);
+
+  // Sign in as newly provisioned tenant_admin
+  const tenantAdminLogin = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: {
+      username: sentEmails[0]!.username,
+      password: sentEmails[0]!.password,
+      tenantSlug: 'stark-labs',
+    },
+  });
+  assert.equal(tenantAdminLogin.statusCode, 200);
+  const tenantAdminCookie = extractCookieHeader(tenantAdminLogin);
+
+  // SEC-03: Own tenant forms -> 200 with { forms: [] }
+  const ownFormsRes = await app.inject({
+    method: 'GET',
+    url: `/api/tenants/${tenant.id}/forms`,
+    headers: { cookie: tenantAdminCookie },
+  });
+  assert.equal(ownFormsRes.statusCode, 200);
+  assert.deepEqual(ownFormsRes.json<{ forms: unknown[] }>(), { forms: [] });
+
+  // SEC-03: Foreign tenant_acme forms -> 403
+  const foreignFormsRes = await app.inject({
+    method: 'GET',
+    url: '/api/tenants/tenant_acme/forms',
+    headers: { cookie: tenantAdminCookie },
+  });
+  assert.equal(foreignFormsRes.statusCode, 403);
+
+  // DAT-01: Delete tenant cleans up tenant and adminUser with zero orphan forms
+  const deleteRes = await app.inject({
+    method: 'DELETE',
+    url: `/api/admin/tenants/${tenant.id}`,
+    headers: { cookie: adminCookie },
+  });
+  assert.equal(deleteRes.statusCode, 200);
+  assert.deepEqual(deleteRes.json<{ deleted: boolean }>(), { deleted: true });
+
+  assert.equal(await store.findClientById(tenant.id), null);
+  assert.equal(await store.findUserByUsername(adminUser.username), null);
+  assert.equal((await store.listUsers(tenant.id)).length, 0);
+  assert.equal((await store.listForms({ clientId: tenant.id })).length, 0);
+  assert.equal((await store.listClients()).length, initialClients);
+  assert.equal((await store.listUsers()).length, initialUsers);
+  assert.equal((await store.listForms()).length, initialForms);
+
+  await app.close();
+});
+
 test('createResendEmailService posts to Resend REST API with expected payload', async () => {
   let capturedUrl = '';
   let capturedAuth = '';
@@ -579,7 +792,7 @@ test('createResendEmailService posts to Resend REST API with expected payload', 
 
 test('superadmin tenant update: validates slug, rejects conflicts with 409, and suspends active sessions', async () => {
   const store = new InMemoryAppStore();
-  await seedDatabase(store);
+  await seedTestDatabase(store);
   const app = await buildServer({ store, logger: false });
 
   const adminLogin = await app.inject({
@@ -724,7 +937,7 @@ test('superadmin tenant update: validates slug, rejects conflicts with 409, and 
 
 test('superadmin user update: modifies username, displayName, and role with uniqueness and RBAC guards', async () => {
   const store = new InMemoryAppStore();
-  await seedDatabase(store);
+  await seedTestDatabase(store);
   const app = await buildServer({ store, logger: false });
 
   const adminLogin = await app.inject({
@@ -838,7 +1051,7 @@ test('superadmin user update: modifies username, displayName, and role with uniq
 
 test('superadmin reset-credentials: generates or sets password, revokes sessions, and emails credentials', async () => {
   const store = new InMemoryAppStore();
-  await seedDatabase(store);
+  await seedTestDatabase(store);
 
   const sentEmails: TenantWelcomeEmailPayload[] = [];
   const spyEmailService: EmailService = {
@@ -980,6 +1193,47 @@ test('superadmin reset-credentials: generates or sets password, revokes sessions
     },
   });
   assert.equal(loginCustom.statusCode, 200);
+
+  await app.close();
+});
+
+test('seedDatabase retains only superadmin with zero seeded tenants, forms, or submissions', async () => {
+  const store = new InMemoryAppStore();
+  await seedDatabase(store);
+  const app = await buildServer({ store, logger: false });
+
+  const adminLogin = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { username: 'superadmin', password: 'admin123' },
+  });
+  assert.equal(adminLogin.statusCode, 200);
+  const adminCookie = extractCookieHeader(adminLogin);
+
+  const [tenantsRes, formsRes, subsRes] = await Promise.all([
+    app.inject({
+      method: 'GET',
+      url: '/api/admin/tenants',
+      headers: { cookie: adminCookie },
+    }),
+    app.inject({
+      method: 'GET',
+      url: '/api/admin/forms',
+      headers: { cookie: adminCookie },
+    }),
+    app.inject({
+      method: 'GET',
+      url: '/api/admin/submissions',
+      headers: { cookie: adminCookie },
+    }),
+  ]);
+
+  assert.equal(tenantsRes.statusCode, 200);
+  assert.deepEqual(tenantsRes.json<{ tenants: unknown[] }>().tenants, []);
+  assert.equal(formsRes.statusCode, 200);
+  assert.deepEqual(formsRes.json<{ forms: unknown[] }>().forms, []);
+  assert.equal(subsRes.statusCode, 200);
+  assert.deepEqual(subsRes.json<{ items: unknown[] }>().items, []);
 
   await app.close();
 });

@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import type { AppStore } from '../../db/store.ts';
-import { resolveTenantScope } from '../../middleware/rbac.ts';
+import {
+  requireTenantAdminScope,
+  resolveTenantScope,
+} from '../../middleware/rbac.ts';
 import {
   createTenantFormAction,
   deleteTenantFormAction,
@@ -87,7 +90,11 @@ export function registerFormsRoutes(
   app.delete<{ Params: { clientId: string; formId: string } }>(
     '/api/tenants/:clientId/forms/:formId',
     async (request, reply) => {
-      const scope = resolveTenantScope(request, reply, request.params.clientId);
+      const scope = requireTenantAdminScope(
+        request,
+        reply,
+        request.params.clientId,
+      );
       if (!scope) return;
       const result = await deleteTenantFormAction(
         store,

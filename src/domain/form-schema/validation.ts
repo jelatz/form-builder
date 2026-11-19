@@ -1,5 +1,6 @@
 import type { BaseFieldConfig, FormField, FormSchema } from './types';
 import { isFieldType } from './types';
+import type { FormSectionPage } from './sections';
 
 export type FormValues = Record<string, unknown>;
 export type FormErrors = Record<string, string>;
@@ -13,6 +14,54 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const PHONE_PATTERN = /^[+\d\s()-]{6,25}$/;
 const WEBSITE_PATTERN = /^(https?:\/\/)?([\w-]+\.)+[\w-]{2,}(\/\S*)?$/i;
+
+function isValidIsoCalendarDate(str: string): boolean {
+  if (!ISO_DATE_PATTERN.test(str)) return false;
+  const [yearStr, monthStr, dayStr] = str.split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  return (
+    !Number.isNaN(dt.getTime()) &&
+    dt.toISOString().slice(0, 10) === str
+  );
+}
+
+function validateNumericBounds(
+  label: string,
+  required: boolean,
+  rawValue: unknown,
+  min?: number,
+  max?: number,
+): string | null {
+  if (rawValue === undefined || rawValue === null || rawValue === '') {
+    return required ? `${label} is required.` : null;
+  }
+  if (typeof rawValue !== 'number' && typeof rawValue !== 'string') {
+    return `${label} must be a valid number.`;
+  }
+  let num: number;
+  if (typeof rawValue === 'string') {
+    const trimmed = rawValue.trim();
+    if (!trimmed) {
+      return required ? `${label} is required.` : null;
+    }
+    num = Number(trimmed);
+  } else {
+    num = rawValue;
+  }
+  if (!Number.isFinite(num)) {
+    return `${label} must be a valid number.`;
+  }
+  if (min !== undefined && num < min) {
+    return `${label} must be at least ${min}.`;
+  }
+  if (max !== undefined && num > max) {
+    return `${label} must be at most ${max}.`;
+  }
+  return null;
+}
 
 /**
  * Validates a single field's runtime value against its discriminated FormField config.
@@ -57,23 +106,14 @@ export function validateField(field: FormField, rawValue: unknown): string | nul
       return null;
     }
 
-    case 'number': {
-      if (rawValue === undefined || rawValue === null || rawValue === '') {
-        return field.required ? `${field.label} is required.` : null;
-      }
-      const num =
-        typeof rawValue === 'number' ? rawValue : Number(String(rawValue).trim());
-      if (Number.isNaN(num)) {
-        return `${field.label} must be a valid number.`;
-      }
-      if (field.min !== undefined && num < field.min) {
-        return `${field.label} must be at least ${field.min}.`;
-      }
-      if (field.max !== undefined && num > field.max) {
-        return `${field.label} must be at most ${field.max}.`;
-      }
-      return null;
-    }
+    case 'number':
+      return validateNumericBounds(
+        field.label,
+        field.required,
+        rawValue,
+        field.min,
+        field.max,
+      );
 
     case 'select':
     case 'radio': {
@@ -101,7 +141,7 @@ export function validateField(field: FormField, rawValue: unknown): string | nul
       if (!str) {
         return field.required ? `${field.label} is required.` : null;
       }
-      if (!ISO_DATE_PATTERN.test(str) || Number.isNaN(Date.parse(str))) {
+      if (!isValidIsoCalendarDate(str)) {
         return `${field.label} must be a valid date (YYYY-MM-DD).`;
       }
       if (field.minDate && str < field.minDate) {
@@ -180,23 +220,14 @@ export function validateField(field: FormField, rawValue: unknown): string | nul
       return null;
     }
 
-    case 'currency': {
-      if (rawValue === undefined || rawValue === null || rawValue === '') {
-        return field.required ? `${field.label} is required.` : null;
-      }
-      const num =
-        typeof rawValue === 'number' ? rawValue : Number(String(rawValue).trim());
-      if (Number.isNaN(num)) {
-        return `${field.label} must be a valid number.`;
-      }
-      if (field.min !== undefined && num < field.min) {
-        return `${field.label} must be at least ${field.min}.`;
-      }
-      if (field.max !== undefined && num > field.max) {
-        return `${field.label} must be at most ${field.max}.`;
-      }
-      return null;
-    }
+    case 'currency':
+      return validateNumericBounds(
+        field.label,
+        field.required,
+        rawValue,
+        field.min,
+        field.max,
+      );
 
     case 'section':
     case 'grid':
@@ -227,28 +258,142 @@ export function validateForm(
 }
 
 /**
- * Computes initial runtime form values for a given FormSchema.
+ * Validates all fields belonging to a single FormSectionPage (including nested grid children).
  */
-export function createInitialFormValues(schema: FormSchema): FormValues {
+export function validateSection(
+  section: FormSectionPage,
+  values: FormValues,
+): FormValidationResult {
+  const errors: FormErrors = {};
+
+  for (const field of section.allFields) {
+    const error = validateField(field, values[field.id]);
+    if (error) {
+      errors[field.id] = error;
+    }
+  }
+
+  return {
+    valid: Object.keys(errors).length === 0,
+    errors,
+  };
+}
+
+/**
+ * Converts a field label into a clean snake_case query parameter key
+ * for URL prefill links (e.g. "Work Email" -> "work_email").
+ */
+export function toFieldQueryKey(label: string, fallbackId: string): string {
+  const normalized = label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return normalized || fallbackId;
+}
+
+function buildSearchParamLookup(
+  searchParams?: URLSearchParams | Record<string, string>,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!searchParams) return map;
+
+  if (searchParams instanceof URLSearchParams) {
+    for (const [key, value] of searchParams.entries()) {
+      map.set(key, value);
+      const lower = key.toLowerCase();
+      if (!map.has(lower)) {
+        map.set(lower, value);
+      }
+    }
+    return map;
+  }
+
+  for (const [key, value] of Object.entries(searchParams)) {
+    map.set(key, value);
+    const lower = key.toLowerCase();
+    if (!map.has(lower)) {
+      map.set(lower, value);
+    }
+  }
+  return map;
+}
+
+/**
+ * Computes initial runtime form values for a given FormSchema, optionally
+ * pre-populating matching fields from URL query parameters.
+ */
+export function createInitialFormValues(
+  schema: FormSchema,
+  searchParams?: URLSearchParams | Record<string, string>,
+): FormValues {
+  const paramMap = buildSearchParamLookup(searchParams);
   const initial: FormValues = {};
+
   for (const field of schema.fields) {
     if (field.type === 'section' || field.type === 'grid') {
       continue;
     }
+
+    const queryKey = toFieldQueryKey(field.label, field.id);
+    const rawParam =
+      paramMap.get(field.id) ??
+      paramMap.get(field.id.toLowerCase()) ??
+      paramMap.get(queryKey);
+    const hasParam = rawParam !== undefined && rawParam.trim() !== '';
+
     if (field.type === 'checkbox') {
+      if (hasParam) {
+        const lower = rawParam.trim().toLowerCase();
+        if (lower === 'true' || lower === '1' || lower === 'yes') {
+          initial[field.id] = true;
+          continue;
+        }
+        if (lower === 'false' || lower === '0' || lower === 'no') {
+          initial[field.id] = false;
+          continue;
+        }
+      }
       initial[field.id] = field.defaultChecked ?? false;
     } else if (field.type === 'name') {
-      initial[field.id] = { firstName: '', lastName: '' };
+      const explicitFirst = paramMap.get('first_name')?.trim();
+      const explicitLast = paramMap.get('last_name')?.trim();
+      if (hasParam) {
+        const parts = rawParam.trim().split(/\s+/);
+        initial[field.id] = {
+          firstName: explicitFirst ?? parts[0] ?? '',
+          lastName: explicitLast ?? parts.slice(1).join(' '),
+        };
+      } else if (explicitFirst || explicitLast) {
+        initial[field.id] = {
+          firstName: explicitFirst ?? '',
+          lastName: explicitLast ?? '',
+        };
+      } else {
+        initial[field.id] = { firstName: '', lastName: '' };
+      }
     } else if (field.type === 'address') {
       initial[field.id] = {
-        street: '',
-        city: '',
-        state: '',
-        zip: '',
-        country: 'United States',
+        street: paramMap.get('street')?.trim() ?? '',
+        city: paramMap.get('city')?.trim() ?? '',
+        state: paramMap.get('state')?.trim() ?? '',
+        zip: paramMap.get('zip')?.trim() ?? '',
+        country: paramMap.get('country')?.trim() || 'United States',
       };
+    } else if (field.type === 'select' || field.type === 'radio') {
+      if (hasParam) {
+        const needle = rawParam.trim().toLowerCase();
+        const matched = field.options.find(
+          (opt) =>
+            opt.value.toLowerCase() === needle ||
+            opt.label.toLowerCase() === needle,
+        );
+        initial[field.id] = matched ? matched.value : rawParam.trim();
+      } else {
+        initial[field.id] = '';
+      }
     } else {
-      initial[field.id] = '';
+      initial[field.id] = hasParam ? rawParam : '';
     }
   }
   return initial;
@@ -446,6 +591,14 @@ export function parseFormSchemaJson(
           ...base,
           type: 'section',
           showLine: typeof f.showLine === 'boolean' ? f.showLine : undefined,
+          thankYouTitle:
+            typeof f.thankYouTitle === 'string' ? f.thankYouTitle : undefined,
+          thankYouMessage:
+            typeof f.thankYouMessage === 'string'
+              ? f.thankYouMessage
+              : undefined,
+          redirectUrl:
+            typeof f.redirectUrl === 'string' ? f.redirectUrl : undefined,
         });
         break;
       case 'grid':
@@ -476,6 +629,12 @@ export function parseFormSchemaJson(
       typeof obj.description === 'string' ? obj.description : undefined,
     submitButtonText:
       typeof obj.submitButtonText === 'string' ? obj.submitButtonText : 'Submit',
+    thankYouTitle:
+      typeof obj.thankYouTitle === 'string' ? obj.thankYouTitle : undefined,
+    thankYouMessage:
+      typeof obj.thankYouMessage === 'string' ? obj.thankYouMessage : undefined,
+    redirectUrl:
+      typeof obj.redirectUrl === 'string' ? obj.redirectUrl : undefined,
     isPublished:
       typeof obj.isPublished === 'boolean' ? obj.isPublished : true,
     fields: validatedFields,

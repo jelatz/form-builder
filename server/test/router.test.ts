@@ -179,6 +179,18 @@ test('parseAppRoute: parses form-scoped routes and preserves decoded formId casi
     formId: 'form-123',
   });
 
+  assert.deepEqual(parseAppRoute('/forms/form-123/integrations'), {
+    kind: 'workspace',
+    mode: 'integrations',
+    formId: 'form-123',
+  });
+
+  assert.deepEqual(parseAppRoute('/forms/form-123/INTEGRATIONS/'), {
+    kind: 'workspace',
+    mode: 'integrations',
+    formId: 'form-123',
+  });
+
   assert.deepEqual(parseAppRoute('/forms/form-123/schema'), {
     kind: 'workspace',
     mode: 'schema',
@@ -224,6 +236,7 @@ test('buildWorkspacePath: builds paths without formId across all workspace modes
   assert.equal(buildWorkspacePath('edit'), '/forms');
   assert.equal(buildWorkspacePath('preview'), '/forms');
   assert.equal(buildWorkspacePath('submissions'), '/forms');
+  assert.equal(buildWorkspacePath('integrations'), '/forms');
 
   // Whitespace-only formId behaves like omitted formId
   assert.equal(buildWorkspacePath('edit', '   '), '/forms');
@@ -245,6 +258,10 @@ test('buildWorkspacePath: builds paths with formId including trimming and URL en
   assert.equal(
     buildWorkspacePath('submissions', 'form-1'),
     '/forms/form-1/submissions',
+  );
+  assert.equal(
+    buildWorkspacePath('integrations', 'form-1'),
+    '/forms/form-1/integrations',
   );
   assert.equal(buildWorkspacePath('schema', 'form-1'), '/forms/form-1/schema');
 
@@ -269,6 +286,7 @@ test('buildWorkspacePath + parseAppRoute: round-trips encoded form-scoped routes
     'edit',
     'preview',
     'submissions',
+    'integrations',
     'schema',
   ];
   const formId = 'Tenant Form/1 #alpha';
@@ -283,8 +301,8 @@ test('buildWorkspacePath + parseAppRoute: round-trips encoded form-scoped routes
   }
 });
 
-test('isFormScopedMode: accurately classifies all 9 WorkspaceMode values', () => {
-  assert.equal(WORKSPACE_MODES.length, 9);
+test('isFormScopedMode: accurately classifies all 10 WorkspaceMode values', () => {
+  assert.equal(WORKSPACE_MODES.length, 10);
 
   const expected: Record<WorkspaceMode, boolean> = {
     dashboard: false,
@@ -294,6 +312,7 @@ test('isFormScopedMode: accurately classifies all 9 WorkspaceMode values', () =>
     edit: true,
     preview: true,
     submissions: true,
+    integrations: true,
     submissions_explorer: false,
     schema: true,
   };

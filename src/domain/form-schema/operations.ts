@@ -1,4 +1,5 @@
 import type { FormField, FormSchema } from './types';
+import { createSectionField } from './sections';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -76,9 +77,18 @@ export function addField(
 
 /**
  * Pure operation: Removes a field by its `fieldId` and any child fields contained within it.
+ * If `fieldId` refers to a `section` field, delegates to `removeSection` so at least one section remains.
  * Returns the original schema reference if `fieldId` does not exist.
  */
 export function removeField(schema: FormSchema, fieldId: string): FormSchema {
+  const target = schema.fields.find((f) => f.id === fieldId);
+  if (!target) {
+    return schema;
+  }
+  if (target.type === 'section') {
+    return removeSection(schema, fieldId);
+  }
+
   const nextFields = schema.fields.filter(
     (f) => f.id !== fieldId && f.parentGridId !== fieldId,
   );
@@ -146,6 +156,7 @@ export function updateField(
 
 /**
  * Pure operation: Moves a field from `fromIndex` to `toIndex`.
+ * Preserves a leading `section` field at index 0 so non-section fields cannot precede Section 1.
  */
 export function moveField(
   schema: FormSchema,
@@ -163,12 +174,29 @@ export function moveField(
     return schema;
   }
 
-  const nextFields = [...schema.fields];
-  const [moved] = nextFields.splice(fromIndex, 1);
+  const moved = schema.fields[fromIndex];
   if (!moved) {
     return schema;
   }
-  nextFields.splice(toIndex, 0, moved);
+
+  const hasLeadingSection = schema.fields[0]?.type === 'section';
+  let clampedToIndex = toIndex;
+  if (hasLeadingSection) {
+    if (fromIndex === 0 && moved.type === 'section') {
+      return schema;
+    }
+    if (moved.type !== 'section' && clampedToIndex === 0) {
+      clampedToIndex = 1;
+    }
+  }
+
+  if (fromIndex === clampedToIndex) {
+    return schema;
+  }
+
+  const nextFields = [...schema.fields];
+  nextFields.splice(fromIndex, 1);
+  nextFields.splice(clampedToIndex, 0, moved);
 
   return {
     ...schema,
@@ -180,6 +208,7 @@ export function moveField(
 /**
  * Pure operation: Duplicates the field with `fieldId` and inserts the copy right after it.
  * If duplicating a grid container, deeply clones all of its nested children as well.
+ * If duplicating a section, places the duplicated section after the original section's fields.
  */
 export function duplicateField(
   schema: FormSchema,
@@ -200,7 +229,17 @@ export function duplicateField(
   const copy = cloneField(sourceField, newId, `${sourceField.label} (Copy)`);
 
   const nextFields = [...schema.fields];
-  if (sourceField.type === 'grid') {
+  if (sourceField.type === 'section') {
+    let insertAt = schema.fields.length;
+    for (let i = sourceIndex + 1; i < schema.fields.length; i++) {
+      const candidate = schema.fields[i];
+      if (candidate && !candidate.parentGridId && candidate.type === 'section') {
+        insertAt = i;
+        break;
+      }
+    }
+    nextFields.splice(insertAt, 0, copy);
+  } else if (sourceField.type === 'grid') {
     const children = schema.fields.filter((f) => f.parentGridId === fieldId);
     const clonedChildren = children.map((child) => {
       const childNewId = generateFieldId();
@@ -269,14 +308,219 @@ export function moveFieldToGrid(
 }
 
 /**
- * Pure operation: Updates top-level form metadata (`title`, `description`, `slug`, `submitButtonText`).
+ * Pure operation: Appends a new titled Section to the end of the form,
+ * or inserts right after `afterSectionId` if provided.
+ */
+export function addSection(
+  schema: FormSchema,
+  title?: string,
+  customId?: string,
+  afterSectionId?: string,
+): FormSchema {
+  const sectionCount = schema.fields.filter((f) => f.type === 'section').length;
+  const resolvedTitle = title?.trim() || `Section ${sectionCount + 1}`;
+  const newSection = createSectionField(resolvedTitle, customId);
+
+  if (!afterSectionId) {
+    return {
+      ...schema,
+      fields: [...schema.fields, newSection],
+      updatedAt: nowIso(),
+    };
+  }
+
+  const afterIdx = schema.fields.findIndex(
+    (f) => f.id === afterSectionId && f.type === 'section',
+  );
+  if (afterIdx === -1) {
+    return {
+      ...schema,
+      fields: [...schema.fields, newSection],
+      updatedAt: nowIso(),
+    };
+  }
+
+  let insertAt = schema.fields.length;
+  for (let i = afterIdx + 1; i < schema.fields.length; i++) {
+    const candidate = schema.fields[i];
+    if (candidate && !candidate.parentGridId && candidate.type === 'section') {
+      insertAt = i;
+      break;
+    }
+  }
+
+  const nextFields = [...schema.fields];
+  nextFields.splice(insertAt, 0, newSection);
+  return {
+    ...schema,
+    fields: nextFields,
+    updatedAt: nowIso(),
+  };
+}
+
+/**
+ * Pure operation: Inserts a non-section field at the end of the specified section.
+ */
+export function addFieldToSection(
+  schema: FormSchema,
+  field: FormField,
+  sectionId?: string,
+): FormSchema {
+  if (!sectionId || field.type === 'section') {
+    return addField(schema, field);
+  }
+
+  const sectionIndex = schema.fields.findIndex(
+    (f) => f.id === sectionId && f.type === 'section',
+  );
+  if (sectionIndex === -1) {
+    return addField(schema, field);
+  }
+
+  let insertAt = schema.fields.length;
+  for (let i = sectionIndex + 1; i < schema.fields.length; i++) {
+    const candidate = schema.fields[i];
+    if (candidate && !candidate.parentGridId && candidate.type === 'section') {
+      insertAt = i;
+      break;
+    }
+  }
+
+  return addField(schema, field, insertAt);
+}
+
+/**
+ * Pure operation: Moves an entire section (header + its top-level fields) up or down.
+ * Grid child fields remain attached to their parent grids.
+ */
+export function moveSection(
+  schema: FormSchema,
+  sectionId: string,
+  direction: 'up' | 'down',
+): FormSchema {
+  const topLevel = schema.fields.filter((f) => !f.parentGridId);
+  const gridChildren = schema.fields.filter((f) => Boolean(f.parentGridId));
+
+  const blocks: FormField[][] = [];
+  let currentBlock: FormField[] | null = null;
+
+  for (const field of topLevel) {
+    if (field.type === 'section') {
+      currentBlock = [field];
+      blocks.push(currentBlock);
+    } else {
+      if (!currentBlock) {
+        currentBlock = [];
+        blocks.push(currentBlock);
+      }
+      currentBlock.push(field);
+    }
+  }
+
+  const currentIdx = blocks.findIndex((b) => b[0]?.id === sectionId);
+  if (currentIdx === -1) {
+    return schema;
+  }
+
+  const targetIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
+  if (targetIdx < 0 || targetIdx >= blocks.length) {
+    return schema;
+  }
+
+  // Prevent moving a section ahead of an implicit non-section block if one exists
+  if (targetIdx === 0 && blocks[0]?.[0]?.type !== 'section') {
+    return schema;
+  }
+
+  const reordered = [...blocks];
+  const [movedBlock] = reordered.splice(currentIdx, 1);
+  if (!movedBlock) {
+    return schema;
+  }
+  reordered.splice(targetIdx, 0, movedBlock);
+
+  return {
+    ...schema,
+    fields: [...reordered.flat(), ...gridChildren],
+    updatedAt: nowIso(),
+  };
+}
+
+/**
+ * Pure operation: Removes a section by ID while preserving at least one section
+ * in the form and keeping its fields inside the adjacent section so data is not lost.
+ */
+export function removeSection(
+  schema: FormSchema,
+  sectionId: string,
+): FormSchema {
+  const sectionFields = schema.fields.filter(
+    (f) => !f.parentGridId && f.type === 'section',
+  );
+  if (sectionFields.length <= 1) {
+    return schema;
+  }
+
+  const topLevel = schema.fields.filter((f) => !f.parentGridId);
+  const gridChildren = schema.fields.filter((f) => Boolean(f.parentGridId));
+  const targetTopIdx = topLevel.findIndex(
+    (f) => f.id === sectionId && f.type === 'section',
+  );
+  if (targetTopIdx === -1) {
+    return schema;
+  }
+
+  // If removing the very first section, promote the second section to index 0
+  // and keep the first section's fields inside it so no fields precede Section 1.
+  if (targetTopIdx === 0) {
+    const secondSectionIdx = topLevel.findIndex(
+      (f, idx) => idx > 0 && f.type === 'section',
+    );
+    if (secondSectionIdx === -1) {
+      return schema;
+    }
+    const firstSectionChildren = topLevel.slice(1, secondSectionIdx);
+    const secondSection = topLevel[secondSectionIdx];
+    const remainingAfterSecond = topLevel.slice(secondSectionIdx + 1);
+    if (!secondSection) {
+      return schema;
+    }
+    return {
+      ...schema,
+      fields: [
+        secondSection,
+        ...firstSectionChildren,
+        ...remainingAfterSecond,
+        ...gridChildren,
+      ],
+      updatedAt: nowIso(),
+    };
+  }
+
+  const nextTopLevel = topLevel.filter((f) => f.id !== sectionId);
+  return {
+    ...schema,
+    fields: [...nextTopLevel, ...gridChildren],
+    updatedAt: nowIso(),
+  };
+}
+
+/**
+ * Pure operation: Updates top-level form metadata (`title`, `description`, `slug`, `submitButtonText`, post-submit settings).
  */
 export function updateFormMetadata(
   schema: FormSchema,
   patch: Partial<
     Pick<
       FormSchema,
-      'title' | 'description' | 'slug' | 'submitButtonText' | 'isPublished'
+      | 'title'
+      | 'description'
+      | 'slug'
+      | 'submitButtonText'
+      | 'thankYouTitle'
+      | 'thankYouMessage'
+      | 'redirectUrl'
+      | 'isPublished'
     >
   >,
 ): FormSchema {
@@ -285,4 +529,25 @@ export function updateFormMetadata(
     ...patch,
     updatedAt: nowIso(),
   };
+}
+
+/**
+ * Pure operation: Marks a FormSchema as a draft (`isPublished: false`) after a builder edit.
+ */
+export function markFormAsDraft(schema: FormSchema): FormSchema {
+  if (schema.isPublished === false) {
+    return schema;
+  }
+  return {
+    ...schema,
+    isPublished: false,
+    updatedAt: nowIso(),
+  };
+}
+
+/**
+ * Pure operation: Marks a FormSchema as published (`isPublished: true`).
+ */
+export function publishFormSchema(schema: FormSchema): FormSchema {
+  return updateFormMetadata(schema, { isPublished: true });
 }

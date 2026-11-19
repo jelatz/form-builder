@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ClientTenant } from '../../domain/form-schema';
 import {
   EMAIL_PATTERN,
@@ -68,12 +68,21 @@ export function CreateTenantModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  const resetAndClose = useCallback(() => {
+    setTenantName('');
+    setAdminUsername('');
+    setIsUsernameEdited(false);
+    setAdminEmail('');
+    setSubmitError(null);
+    onClose();
+  }, [onClose]);
+
   useEffect(() => {
     if (!open) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !isSubmitting) {
-        onClose();
+        resetAndClose();
       }
     };
 
@@ -81,9 +90,14 @@ export function CreateTenantModal({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [open, isSubmitting, onClose]);
+  }, [open, isSubmitting, resetAndClose]);
 
   if (!open) return null;
+
+  const handleDismiss = () => {
+    if (isSubmitting) return;
+    resetAndClose();
+  };
 
   const resolvedUsername = isUsernameEdited
     ? adminUsername.trim()
@@ -135,11 +149,7 @@ export function CreateTenantModal({
         adminUsername: resolvedUsername,
         email: trimmedEmail.toLowerCase(),
       });
-      setTenantName('');
-      setAdminUsername('');
-      setIsUsernameEdited(false);
-      setAdminEmail('');
-      onClose();
+      resetAndClose();
     } catch (err) {
       setSubmitError(
         err instanceof Error
@@ -159,9 +169,7 @@ export function CreateTenantModal({
   return (
     <div
       className="fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4"
-      onClick={() => {
-        if (!isSubmitting) onClose();
-      }}
+      onClick={handleDismiss}
     >
       <form
         role="dialog"
@@ -255,7 +263,7 @@ export function CreateTenantModal({
           <Button
             size="xs"
             variant="ghost"
-            onClick={onClose}
+            onClick={handleDismiss}
             disabled={isSubmitting}
           >
             Cancel
@@ -397,7 +405,10 @@ function EditTenantModalForm({
           >
             Edit Tenant Details
           </span>
-          <Badge variant={editStatus === 'suspended' ? 'danger' : 'success'}>
+          <Badge
+            size="sm"
+            variant={editStatus === 'suspended' ? 'danger' : 'success'}
+          >
             {editStatus === 'suspended' ? 'SUSPENDED' : 'ACTIVE'}
           </Badge>
         </div>

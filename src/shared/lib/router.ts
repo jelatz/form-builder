@@ -11,6 +11,7 @@ export const WORKSPACE_MODES = [
   'edit',
   'preview',
   'submissions',
+  'integrations',
   'submissions_explorer',
   'schema',
 ] as const;
@@ -32,6 +33,7 @@ export function isFormScopedMode(mode: WorkspaceMode): boolean {
     mode === 'edit' ||
     mode === 'preview' ||
     mode === 'submissions' ||
+    mode === 'integrations' ||
     mode === 'schema'
   );
 }
@@ -71,7 +73,7 @@ export function parseAppRoute(pathname: string): AppRoute {
   }
 
   const formActionMatch = pathname.match(
-    /^\/forms\/([^/]+)\/(edit|preview|submissions|schema)\/?$/i,
+    /^\/forms\/([^/]+)\/(edit|preview|submissions|integrations|schema)\/?$/i,
   );
   if (formActionMatch?.[1] && formActionMatch[2]) {
     const formId = safeDecodeURIComponent(formActionMatch[1]);
@@ -79,6 +81,7 @@ export function parseAppRoute(pathname: string): AppRoute {
       | 'edit'
       | 'preview'
       | 'submissions'
+      | 'integrations'
       | 'schema';
     return {
       kind: 'workspace',
@@ -133,5 +136,7 @@ export function buildWorkspacePath(
       return encodedFormId ? `/forms/${encodedFormId}/preview` : '/forms';
     case 'submissions':
       return encodedFormId ? `/forms/${encodedFormId}/submissions` : '/forms';
+    case 'integrations':
+      return encodedFormId ? `/forms/${encodedFormId}/integrations` : '/forms';
   }
 }

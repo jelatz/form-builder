@@ -3,7 +3,10 @@ import type {
   FormField,
   FormSchema,
   FormValues,
+  FormWebhook,
   SubmissionRecord,
+  WebhookDelivery,
+  WebhookEventType,
 } from '../../domain/form-schema';
 import { apiRequest } from '../../shared/lib';
 
@@ -44,21 +47,27 @@ export async function fetchSuperadminSnapshot(): Promise<WorkspaceSnapshot> {
 
 export async function fetchTenantSnapshot(
   tenant: ClientTenant,
+  canManageUsers = false,
 ): Promise<WorkspaceSnapshot> {
-  const [formsRes, submissionsRes] = await Promise.all([
+  const [formsRes, submissionsRes, usersRes] = await Promise.all([
     apiRequest<{ forms: FormSchema[] }>(
       `/api/tenants/${encodeURIComponent(tenant.id)}/forms`,
     ),
     apiRequest<{ items: SubmissionRecord[] }>(
       `/api/tenants/${encodeURIComponent(tenant.id)}/submissions?limit=500`,
     ),
+    canManageUsers
+      ? apiRequest<{ users: ManagedTenantUser[] }>(
+          `/api/tenants/${encodeURIComponent(tenant.id)}/users`,
+        )
+      : Promise.resolve({ users: [] as ManagedTenantUser[] }),
   ]);
 
   return {
     tenants: [tenant],
     forms: formsRes.forms,
     submissions: submissionsRes.items,
-    users: [],
+    users: usersRes.users,
   };
 }
 
@@ -70,7 +79,6 @@ export interface EmailDeliveryResult {
 
 export interface CreateTenantResponse {
   tenant: ClientTenant;
-  starterForm: FormSchema;
   adminUser: ManagedTenantUser;
   emailDelivery: EmailDeliveryResult;
 }
@@ -123,10 +131,13 @@ export async function apiCreateTenantUser(input: {
   password: string;
   role: 'tenant_admin' | 'tenant_member';
 }): Promise<ManagedTenantUser> {
-  const res = await apiRequest<{ user: ManagedTenantUser }>('/api/admin/users', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
+  const res = await apiRequest<{ user: ManagedTenantUser }>(
+    `/api/tenants/${encodeURIComponent(input.clientId)}/users`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
   return res.user;
 }
 
@@ -139,14 +150,15 @@ export async function apiUpdateTenantUser(
     isActive?: boolean;
     password?: string;
   },
+  clientId?: string,
 ): Promise<ManagedTenantUser> {
-  const res = await apiRequest<{ user: ManagedTenantUser }>(
-    `/api/admin/users/${encodeURIComponent(userId)}`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify(input),
-    },
-  );
+  const basePath = clientId
+    ? `/api/tenants/${encodeURIComponent(clientId)}/users/${encodeURIComponent(userId)}`
+    : `/api/admin/users/${encodeURIComponent(userId)}`;
+  const res = await apiRequest<{ user: ManagedTenantUser }>(basePath, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
   return res.user;
 }
 
@@ -156,23 +168,27 @@ export async function apiResetTenantUserCredentials(
     password?: string;
     email?: string;
   },
+  clientId?: string,
 ): Promise<ResetUserCredentialsResponse> {
-  return apiRequest<ResetUserCredentialsResponse>(
-    `/api/admin/users/${encodeURIComponent(userId)}/reset-credentials`,
-    {
-      method: 'POST',
-      body: JSON.stringify(input),
-    },
-  );
+  const basePath = clientId
+    ? `/api/tenants/${encodeURIComponent(clientId)}/users/${encodeURIComponent(userId)}/reset-credentials`
+    : `/api/admin/users/${encodeURIComponent(userId)}/reset-credentials`;
+  return apiRequest<ResetUserCredentialsResponse>(basePath, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }
 
-export async function apiDeleteTenantUser(userId: string): Promise<void> {
-  await apiRequest<{ deleted: true }>(
-    `/api/admin/users/${encodeURIComponent(userId)}`,
-    {
-      method: 'DELETE',
-    },
-  );
+export async function apiDeleteTenantUser(
+  userId: string,
+  clientId?: string,
+): Promise<void> {
+  const basePath = clientId
+    ? `/api/tenants/${encodeURIComponent(clientId)}/users/${encodeURIComponent(userId)}`
+    : `/api/admin/users/${encodeURIComponent(userId)}`;
+  await apiRequest<{ deleted: true }>(basePath, {
+    method: 'DELETE',
+  });
 }
 
 export async function apiCreateForm(
@@ -182,6 +198,9 @@ export async function apiCreateForm(
     slug?: string;
     description?: string;
     submitButtonText?: string;
+    thankYouTitle?: string;
+    thankYouMessage?: string;
+    redirectUrl?: string;
     isPublished?: boolean;
     fields?: FormField[];
   },
@@ -206,6 +225,9 @@ export async function apiUpdateForm(
       | 'slug'
       | 'description'
       | 'submitButtonText'
+      | 'thankYouTitle'
+      | 'thankYouMessage'
+      | 'redirectUrl'
       | 'isPublished'
       | 'fields'
     >
@@ -301,6 +323,98 @@ export async function apiSubmitPublicForm(
       body: JSON.stringify({ values }),
     },
   );
+}
+
+export async function apiFetchFormWebhooks(
+  clientId: string,
+  formId: string,
+): Promise<{ webhooks: FormWebhook[]; deliveries: WebhookDelivery[] }> {
+  return apiRequest<{ webhooks: FormWebhook[]; deliveries: WebhookDelivery[] }>(
+    `/api/tenants/${encodeURIComponent(clientId)}/forms/${encodeURIComponent(formId)}/webhooks`,
+  );
+}
+
+export async function apiCreateFormWebhook(
+  clientId: string,
+  formId: string,
+  input: {
+    name: string;
+    url: string;
+    secret?: string;
+    events?: WebhookEventType[];
+    isActive?: boolean;
+  },
+): Promise<FormWebhook> {
+  const res = await apiRequest<{ webhook: FormWebhook }>(
+    `/api/tenants/${encodeURIComponent(clientId)}/forms/${encodeURIComponent(formId)}/webhooks`,
+    {
+      method: 'POST',
+      body: JSON.stringify(input),
+    },
+  );
+  return res.webhook;
+}
+
+export async function apiUpdateFormWebhook(
+  clientId: string,
+  formId: string,
+  webhookId: string,
+  input: {
+    name?: string;
+    url?: string;
+    secret?: string;
+    events?: WebhookEventType[];
+    isActive?: boolean;
+  },
+): Promise<FormWebhook> {
+  const res = await apiRequest<{ webhook: FormWebhook }>(
+    `/api/tenants/${encodeURIComponent(clientId)}/forms/${encodeURIComponent(formId)}/webhooks/${encodeURIComponent(webhookId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    },
+  );
+  return res.webhook;
+}
+
+export async function apiDeleteFormWebhook(
+  clientId: string,
+  formId: string,
+  webhookId: string,
+): Promise<void> {
+  await apiRequest<{ deleted: true }>(
+    `/api/tenants/${encodeURIComponent(clientId)}/forms/${encodeURIComponent(formId)}/webhooks/${encodeURIComponent(webhookId)}`,
+    {
+      method: 'DELETE',
+    },
+  );
+}
+
+export async function apiTestFormWebhook(
+  clientId: string,
+  formId: string,
+  webhookId: string,
+): Promise<WebhookDelivery> {
+  const res = await apiRequest<{ delivery: WebhookDelivery }>(
+    `/api/tenants/${encodeURIComponent(clientId)}/forms/${encodeURIComponent(formId)}/webhooks/${encodeURIComponent(webhookId)}/test`,
+    {
+      method: 'POST',
+    },
+  );
+  return res.delivery;
+}
+
+export async function apiRetryWebhookDelivery(
+  clientId: string,
+  deliveryId: string,
+): Promise<WebhookDelivery> {
+  const res = await apiRequest<{ delivery: WebhookDelivery }>(
+    `/api/tenants/${encodeURIComponent(clientId)}/webhooks/deliveries/${encodeURIComponent(deliveryId)}/retry`,
+    {
+      method: 'POST',
+    },
+  );
+  return res.delivery;
 }
 
 /**

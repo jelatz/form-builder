@@ -11,6 +11,10 @@ import {
 import type { AppStore } from '../../db/store.ts';
 import { createEntityId } from '../../lib/crypto.ts';
 import type { PaginatedResult } from '../../types.ts';
+import {
+  dispatchSubmissionWebhooks,
+  type WebhookHttpTransport,
+} from '../webhooks/dispatcher.ts';
 
 export type SubmissionActionResult<T> =
   | { ok: true; data: T }
@@ -38,6 +42,7 @@ async function validateAndInsertSubmission(
   store: AppStore,
   form: FormSchema,
   values: FormValues,
+  webhookTransport?: WebhookHttpTransport,
 ): Promise<SubmissionActionResult<SubmissionRecord>> {
   const validation = validateForm(form, values);
   if (!validation.valid) {
@@ -57,6 +62,8 @@ async function validateAndInsertSubmission(
     submittedAt: new Date().toISOString(),
   });
 
+  await dispatchSubmissionWebhooks(store, form, record, webhookTransport);
+
   return { ok: true, data: record };
 }
 
@@ -65,12 +72,13 @@ export async function createAuthenticatedSubmissionAction(
   clientId: string,
   formId: string,
   values: FormValues,
+  webhookTransport?: WebhookHttpTransport,
 ): Promise<SubmissionActionResult<SubmissionRecord>> {
   const form = await store.findFormById(formId, clientId);
   if (!form) {
     return { ok: false, statusCode: 404, error: 'Form not found.' };
   }
-  return validateAndInsertSubmission(store, form, values);
+  return validateAndInsertSubmission(store, form, values, webhookTransport);
 }
 
 export async function deleteTenantSubmissionAction(
@@ -124,6 +132,7 @@ export async function submitPublicFormAction(
   tenantSlug: string,
   formSlug: string,
   values: FormValues,
+  webhookTransport?: WebhookHttpTransport,
 ): Promise<SubmissionActionResult<SubmissionRecord>> {
   const match = await store.findPublishedFormBySlugs(
     tenantSlug.trim().toLowerCase(),
@@ -136,5 +145,10 @@ export async function submitPublicFormAction(
       error: 'Published form not found.',
     };
   }
-  return validateAndInsertSubmission(store, match.form, values);
+  return validateAndInsertSubmission(
+    store,
+    match.form,
+    values,
+    webhookTransport,
+  );
 }

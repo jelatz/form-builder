@@ -41,7 +41,6 @@ export interface CreateTenantDependencies {
 
 export interface CreateTenantProvisionResult {
   tenant: ClientTenant;
-  starterForm: FormSchema;
   adminUser: PublicUser;
   emailDelivery: EmailDeliveryResult;
 }
@@ -87,26 +86,6 @@ export async function createTenantAction(
   });
 
   try {
-    const starterForm = await store.createForm({
-      id: createEntityId('form'),
-      clientId: tenant.id,
-      slug: 'default-intake',
-      title: `${tenant.name} Intake Form`,
-      description: `Default intake form for ${tenant.name}`,
-      submitButtonText: 'Submit',
-      isPublished: true,
-      fields: [
-        {
-          id: createEntityId('field_text'),
-          type: 'text',
-          label: 'Full Name',
-          placeholder: 'Enter your name',
-          required: true,
-        },
-      ],
-      nowIso,
-    });
-
     const rawPassword = generateHexPassword();
     const passwordHash = await hashPassword(rawPassword);
     const adminUser = await store.createUser({
@@ -134,10 +113,10 @@ export async function createTenantAction(
 
     return {
       ok: true,
-      data: { tenant, starterForm, adminUser, emailDelivery },
+      data: { tenant, adminUser, emailDelivery },
     };
   } catch (err) {
-    // Roll back tenant (cascades to starter form and provisioned admin user)
+    // Roll back tenant (cascades to provisioned admin user)
     try {
       await store.deleteClient(tenant.id);
     } catch {

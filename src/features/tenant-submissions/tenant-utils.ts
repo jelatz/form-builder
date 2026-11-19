@@ -1,5 +1,6 @@
 import type {
   ClientTenant,
+  FormField,
   FormSchema,
   SubmissionRecord,
 } from '../../domain/form-schema/types.ts';
@@ -10,16 +11,68 @@ export function formatIsoTimestamp(iso: string): string {
   return iso.slice(0, 19).replace('T', ' ');
 }
 
-/** Formats an arbitrary submission field value for human-readable table cells. */
-export function formatSubmissionValue(value: unknown): string {
+function resolveOptionLabel(value: string, field?: FormField): string {
+  if (field && 'options' in field && Array.isArray(field.options)) {
+    const matched = field.options.find((opt) => opt.value === value);
+    if (matched) return matched.label;
+  }
+  return value;
+}
+
+function joinNonEmptyParts(parts: unknown[], separator: string): string {
+  const cleaned: string[] = [];
+  for (const part of parts) {
+    if (part === undefined || part === null) continue;
+    const text = String(part).trim();
+    if (text !== '') {
+      cleaned.push(text);
+    }
+  }
+  return cleaned.length > 0 ? cleaned.join(separator) : '—';
+}
+
+/** Formats an arbitrary submission field value for human-readable table cells and drawers. */
+export function formatSubmissionValue(
+  value: unknown,
+  field?: FormField,
+): string {
   if (value === undefined || value === null || value === '') return '—';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (typeof value === 'object') {
-    const entries = Object.values(value as Record<string, unknown>).filter(
-      (v) => v !== undefined && v !== null && v !== '',
-    );
-    return entries.length > 0 ? entries.map(String).join(' ') : '—';
+
+  if (Array.isArray(value)) {
+    const formattedItems = value
+      .map((item) => {
+        if (item === undefined || item === null) return '';
+        const raw = String(item).trim();
+        return raw === '' ? '' : resolveOptionLabel(raw, field);
+      })
+      .filter((text) => text !== '');
+    return formattedItems.length > 0 ? formattedItems.join(', ') : '—';
   }
+
+  if (typeof value === 'object') {
+    const rec = value as Record<string, unknown>;
+    if (field?.type === 'name' || 'firstName' in rec || 'lastName' in rec) {
+      return joinNonEmptyParts([rec.firstName, rec.lastName], ' ');
+    }
+    if (
+      field?.type === 'address' ||
+      'street' in rec ||
+      'city' in rec ||
+      'zip' in rec
+    ) {
+      return joinNonEmptyParts(
+        [rec.street, rec.city, rec.state, rec.zip, rec.country],
+        ', ',
+      );
+    }
+    return joinNonEmptyParts(Object.values(rec), ' ');
+  }
+
+  if (typeof value === 'string' || typeof value === 'number') {
+    return resolveOptionLabel(String(value), field);
+  }
+
   return String(value);
 }
 
@@ -33,7 +86,10 @@ export function getSubmissionPreview(
       (f) => f.type !== 'section' && f.type !== 'grid',
     );
     for (const field of dataFields) {
-      const formatted = formatSubmissionValue(submission.values[field.id]);
+      const formatted = formatSubmissionValue(
+        submission.values[field.id],
+        field,
+      );
       if (formatted !== '—') {
         return formatted;
       }

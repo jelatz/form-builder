@@ -1,5 +1,6 @@
 import {
   createHash,
+  createHmac,
   randomBytes,
   randomUUID,
   scrypt,
@@ -91,4 +92,17 @@ export function timingSafeEqualHex(a: string, b: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Generates a signing secret (`whsec_<48-hex-chars>`) for outbound webhooks. */
+export function generateWebhookSecret(): string {
+  return `whsec_${randomBytes(24).toString('hex')}`;
+}
+
+/** Computes an HMAC-SHA256 signature (`sha256=<hex>`) over a raw JSON payload body. */
+export function signWebhookPayload(secret: string, rawBody: string): string {
+  const digest = createHmac('sha256', secret)
+    .update(rawBody, 'utf8')
+    .digest('hex');
+  return `sha256=${digest}`;
 }

@@ -117,6 +117,9 @@ export interface CurrencyFieldConfig extends BaseFieldConfig {
 export interface SectionFieldConfig extends BaseFieldConfig {
   type: 'section';
   showLine?: boolean;
+  thankYouTitle?: string;
+  thankYouMessage?: string;
+  redirectUrl?: string;
 }
 
 export interface GridFieldConfig extends BaseFieldConfig {
@@ -164,6 +167,9 @@ export interface FormSchema {
   title: string;
   description?: string;
   submitButtonText?: string;
+  thankYouTitle?: string;
+  thankYouMessage?: string;
+  redirectUrl?: string;
   isPublished?: boolean;
   fields: FormField[];
   updatedAt: string;
@@ -177,6 +183,53 @@ export interface SubmissionRecord {
   submittedAt: string;
 }
 
+export const WEBHOOK_EVENT_TYPES = [
+  'submission.created',
+  'webhook.test',
+] as const;
+
+export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];
+
+export const WEBHOOK_DELIVERY_STATUSES = [
+  'queued',
+  'running',
+  'completed',
+  'failed',
+] as const;
+
+export type WebhookDeliveryStatus =
+  (typeof WEBHOOK_DELIVERY_STATUSES)[number];
+
+export interface FormWebhook {
+  id: string;
+  formId: string;
+  clientId: string;
+  name: string;
+  url: string;
+  secret: string;
+  events: WebhookEventType[];
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  webhookId: string;
+  formId: string;
+  clientId: string;
+  submissionId: string | null;
+  eventType: WebhookEventType;
+  status: WebhookDeliveryStatus;
+  requestPayload: Record<string, unknown>;
+  responseStatus: number | null;
+  responseBody: string | null;
+  errorMessage: string | null;
+  attemptCount: number;
+  createdAt: string;
+  completedAt: string | null;
+}
+
 /**
  * Type guard verifying if an unknown string is a supported FieldType.
  */
@@ -185,4 +238,18 @@ export function isFieldType(value: unknown): value is FieldType {
     typeof value === 'string' &&
     (FIELD_TYPES as readonly string[]).includes(value)
   );
+}
+
+/**
+ * Counts interactive data fields in a schema, excluding layout/structural
+ * containers (`section` and `grid`).
+ */
+export function countDataFields(fields: readonly FormField[]): number {
+  let count = 0;
+  for (const field of fields) {
+    if (field.type !== 'section' && field.type !== 'grid') {
+      count += 1;
+    }
+  }
+  return count;
 }

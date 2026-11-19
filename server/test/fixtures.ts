@@ -3,8 +3,11 @@ import type {
   FormSchema,
   SubmissionRecord,
 } from '../../src/domain/form-schema/types.ts';
+import { seedDatabase } from '../db/seed.ts';
+import type { AppStore } from '../db/store.ts';
+import { hashPassword } from '../lib/crypto.ts';
 
-export const SEED_TENANTS: ClientTenant[] = [
+export const TEST_TENANTS: ClientTenant[] = [
   {
     id: 'tenant_acme',
     name: 'Acme Corp',
@@ -21,7 +24,7 @@ export const SEED_TENANTS: ClientTenant[] = [
   },
 ];
 
-export const SEED_FORMS: FormSchema[] = [
+export const TEST_FORMS: FormSchema[] = [
   {
     id: 'form_onboarding_01',
     clientId: 'tenant_acme',
@@ -179,7 +182,7 @@ export const SEED_FORMS: FormSchema[] = [
   },
 ];
 
-export const SEED_SUBMISSIONS: SubmissionRecord[] = [
+export const TEST_SUBMISSIONS: SubmissionRecord[] = [
   {
     id: 'sub_acme_001',
     formId: 'form_onboarding_01',
@@ -219,3 +222,82 @@ export const SEED_SUBMISSIONS: SubmissionRecord[] = [
     },
   },
 ];
+
+/**
+ * Seeds the superadmin plus sample multi-tenant fixtures for automated API tests.
+ */
+export async function seedTestDatabase(
+  store: AppStore,
+  options?: {
+    superadminUsername?: string;
+    superadminPassword?: string;
+  },
+): Promise<void> {
+  await seedDatabase(store, options);
+  const nowIso = new Date().toISOString();
+
+  for (const tenant of TEST_TENANTS) {
+    const existing = await store.findClientById(tenant.id);
+    if (!existing) {
+      await store.createClient({
+        id: tenant.id,
+        name: tenant.name,
+        slug: tenant.slug,
+        status: tenant.status ?? 'active',
+        nowIso: tenant.createdAt,
+      });
+    }
+  }
+
+  const existingAcmeAdmin = await store.findUserByUsername('acme_admin');
+  if (!existingAcmeAdmin) {
+    await store.createUser({
+      id: 'user_acme_admin',
+      clientId: 'tenant_acme',
+      username: 'acme_admin',
+      displayName: 'Acme Admin',
+      passwordHash: await hashPassword('acme1234'),
+      role: 'tenant_admin',
+      isActive: true,
+      nowIso,
+    });
+  }
+
+  const existingGlobexAdmin = await store.findUserByUsername('globex_admin');
+  if (!existingGlobexAdmin) {
+    await store.createUser({
+      id: 'user_globex_admin',
+      clientId: 'tenant_globex',
+      username: 'globex_admin',
+      displayName: 'Globex Admin',
+      passwordHash: await hashPassword('globex1234'),
+      role: 'tenant_admin',
+      isActive: true,
+      nowIso,
+    });
+  }
+
+  for (const form of TEST_FORMS) {
+    const existing = await store.findFormById(form.id, form.clientId);
+    if (!existing) {
+      await store.createForm({
+        id: form.id,
+        clientId: form.clientId,
+        slug: form.slug,
+        title: form.title,
+        description: form.description,
+        submitButtonText: form.submitButtonText,
+        isPublished: form.isPublished ?? true,
+        fields: form.fields,
+        nowIso: form.updatedAt,
+      });
+    }
+  }
+
+  const existingSubs = await store.listSubmissions({ limit: 1, offset: 0 });
+  if (existingSubs.total === 0) {
+    for (const sub of TEST_SUBMISSIONS) {
+      await store.createSubmission(sub);
+    }
+  }
+}

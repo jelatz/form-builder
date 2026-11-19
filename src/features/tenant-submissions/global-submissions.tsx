@@ -267,11 +267,11 @@ export function GlobalSubmissionsPanel({
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-xs uppercase text-zinc-600">
-                      <th className="py-2.5 px-3">Response</th>
-                      {isSuperadmin && <th className="py-2.5 px-3">Tenant</th>}
-                      <th className="py-2.5 px-3">Form</th>
-                      <th className="py-2.5 px-3">Submitted At</th>
-                      <th className="py-2.5 px-3 text-right">Action</th>
+                      <th scope="col" className="py-2.5 px-3">Response</th>
+                      {isSuperadmin && <th scope="col" className="py-2.5 px-3">Tenant</th>}
+                      <th scope="col" className="py-2.5 px-3">Form</th>
+                      <th scope="col" className="py-2.5 px-3">Submitted At</th>
+                      <th scope="col" className="py-2.5 px-3 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100 text-xs">
@@ -305,7 +305,7 @@ export function GlobalSubmissionsPanel({
                               {form?.title ?? 'Untitled form'}
                             </span>
                           </td>
-                          <td className="py-2.5 px-3 font-mono text-zinc-500 whitespace-nowrap">
+                          <td className="py-2.5 px-3 font-mono text-zinc-500 whitespace-nowrap tabular-nums">
                             {formatIsoTimestamp(sub.submittedAt)}
                           </td>
                           <td
@@ -379,7 +379,7 @@ export function GlobalSubmissionsPanel({
                             {field.label}
                           </span>
                           <p className="text-xs text-zinc-900 break-all">
-                            {formatSubmissionValue(selectedRecord.values[field.id])}
+                            {formatSubmissionValue(selectedRecord.values[field.id], field)}
                           </p>
                         </div>
                       ))}

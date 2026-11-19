@@ -5,6 +5,7 @@ import type {
   SubmissionRecord,
 } from '../../domain/form-schema';
 import { Badge, Button, PageContainer } from '../../shared/ui';
+import { EmbedFormModal } from './embed-form-modal';
 import { formatIsoTimestamp, getSubmissionPreview } from './tenant-utils';
 
 export interface FormDetailPanelProps {
@@ -16,7 +17,9 @@ export interface FormDetailPanelProps {
   onOpenBuilder: (fieldId?: string) => void;
   onViewForm: () => void;
   onViewSubmissions: () => void;
+  onOpenIntegrations?: () => void;
   onTogglePublish?: (isPublished: boolean) => void;
+  canDeleteForm?: boolean;
   onDeleteForm: (formId: string) => void;
 }
 
@@ -29,10 +32,13 @@ export function FormDetailPanel({
   onOpenBuilder,
   onViewForm,
   onViewSubmissions,
+  onOpenIntegrations,
   onTogglePublish,
+  canDeleteForm = true,
   onDeleteForm,
 }: FormDetailPanelProps) {
   const [copiedUrl, setCopiedUrl] = useState(false);
+  const [showEmbedModal, setShowEmbedModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
@@ -102,7 +108,10 @@ export function FormDetailPanel({
                 <span>All Forms</span>
               </Button>
 
-              <Badge variant={form.isPublished === false ? 'warning' : 'success'}>
+              <Badge
+                size="sm"
+                variant={form.isPublished === false ? 'warning' : 'success'}
+              >
                 {form.isPublished === false ? 'UNPUBLISHED' : 'PUBLISHED'}
               </Badge>
 
@@ -126,6 +135,28 @@ export function FormDetailPanel({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => setShowEmbedModal(true)}
+                title="Generate iframe, popup widget, and prefill URLs"
+              >
+                <svg
+                  className="w-3.5 h-3.5"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <polyline points="16 18 22 12 16 6" />
+                  <polyline points="8 6 2 12 8 18" />
+                </svg>
+                <span>Embed &amp; Share</span>
+              </Button>
+
               <Button
                 size="sm"
                 variant="secondary"
@@ -201,7 +232,7 @@ export function FormDetailPanel({
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
             {/* Option 1: Builder */}
             <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-2xs flex flex-col justify-between gap-4">
               <div className="space-y-2">
@@ -222,8 +253,8 @@ export function FormDetailPanel({
                     </svg>
                   </div>
                   <Badge variant="neutral">
-                    {form.fields.length}{' '}
-                    {form.fields.length === 1 ? 'field' : 'fields'}
+                    {dataFields.length}{' '}
+                    {dataFields.length === 1 ? 'field' : 'fields'}
                   </Badge>
                 </div>
                 <div>
@@ -330,7 +361,50 @@ export function FormDetailPanel({
               </Button>
             </div>
 
-            {/* Option 4: Delete */}
+            {/* Option 4: Integrations & Webhooks */}
+            {onOpenIntegrations && (
+              <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-2xs flex flex-col justify-between gap-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="h-8 w-8 rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-400 flex items-center justify-center">
+                      <svg
+                        className="w-4 h-4"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                      </svg>
+                    </div>
+                    <Badge variant="neutral">WEBHOOKS</Badge>
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-semibold text-zinc-900">
+                      Integrations
+                    </h2>
+                    <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">
+                      Connect webhooks, Zapier, Slack, or CRM endpoints with
+                      delivery logs.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={onOpenIntegrations}
+                  className="w-full"
+                >
+                  Integrations
+                </Button>
+              </div>
+            )}
+
+            {/* Option 5: Delete */}
             <div className="rounded-lg border border-rose-200/80 dark:border-rose-900/50 bg-white p-4 shadow-2xs flex flex-col justify-between gap-4">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -365,6 +439,12 @@ export function FormDetailPanel({
               <Button
                 size="sm"
                 variant="danger"
+                disabled={canDeleteForm === false}
+                title={
+                  canDeleteForm === false
+                    ? 'Only Tenant Admins can delete forms'
+                    : undefined
+                }
                 onClick={() => setShowDeleteConfirm(true)}
                 className="w-full"
               >
@@ -427,7 +507,7 @@ export function FormDetailPanel({
                         {field.label || 'Untitled field'}
                       </span>
                       {field.required && (
-                        <Badge variant="warning">REQUIRED</Badge>
+                        <Badge size="sm" variant="warning">REQUIRED</Badge>
                       )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -509,6 +589,14 @@ export function FormDetailPanel({
         </div>
       </PageContainer>
 
+      {/* Embed & Share Modal */}
+      <EmbedFormModal
+        open={showEmbedModal}
+        tenant={tenant}
+        form={form}
+        onClose={() => setShowEmbedModal(false)}
+      />
+
       {/* Delete Form Confirmation Modal */}
       {showDeleteConfirm && (
         <div
@@ -564,7 +652,7 @@ export function FormDetailPanel({
               <div className="flex items-center justify-between">
                 <span className="text-zinc-500">Fields</span>
                 <span className="font-mono text-zinc-800">
-                  {form.fields.length}
+                  {dataFields.length}
                 </span>
               </div>
               <div className="flex items-center justify-between">

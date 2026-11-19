@@ -10,6 +10,8 @@ import { registerAdminRoutes } from './modules/admin/controller.ts';
 import { registerAuthRoutes } from './modules/auth/controller.ts';
 import { registerFormsRoutes } from './modules/forms/controller.ts';
 import { registerSubmissionsRoutes } from './modules/submissions/controller.ts';
+import { registerWebhooksRoutes } from './modules/webhooks/controller.ts';
+import type { WebhookHttpTransport } from './modules/webhooks/dispatcher.ts';
 
 export interface BuildServerOptions {
   store: AppStore;
@@ -17,6 +19,7 @@ export interface BuildServerOptions {
   logger?: boolean;
   emailService?: EmailService;
   appOrigin?: string;
+  webhookTransport?: WebhookHttpTransport;
 }
 
 export async function buildServer({
@@ -25,6 +28,7 @@ export async function buildServer({
   logger = false,
   emailService,
   appOrigin = 'http://localhost:5173',
+  webhookTransport,
 }: BuildServerOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger });
 
@@ -49,7 +53,8 @@ export async function buildServer({
     appOrigin,
   });
   registerFormsRoutes(app, store);
-  registerSubmissionsRoutes(app, store);
+  registerSubmissionsRoutes(app, store, webhookTransport);
+  registerWebhooksRoutes(app, store, webhookTransport);
 
   app.setErrorHandler((error, _request, reply) => {
     const statusCode =
