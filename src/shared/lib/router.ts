@@ -14,6 +14,7 @@ export const WORKSPACE_MODES = [
   'integrations',
   'submissions_explorer',
   'schema',
+  'guide',
 ] as const;
 
 export type WorkspaceMode = (typeof WORKSPACE_MODES)[number];
@@ -107,6 +108,10 @@ export function parseAppRoute(pathname: string): AppRoute {
     return { kind: 'workspace', mode: 'schema' };
   }
 
+  if (/^\/guide\/?$/i.test(pathname)) {
+    return { kind: 'workspace', mode: 'guide' };
+  }
+
   return { kind: 'workspace', mode: 'dashboard' };
 }
 
@@ -138,5 +143,7 @@ export function buildWorkspacePath(
       return encodedFormId ? `/forms/${encodedFormId}/submissions` : '/forms';
     case 'integrations':
       return encodedFormId ? `/forms/${encodedFormId}/integrations` : '/forms';
+    case 'guide':
+      return '/guide';
   }
 }

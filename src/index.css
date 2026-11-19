@@ -252,3 +252,62 @@ html.dark ::-webkit-scrollbar-thumb:hover {
     animation: none;
   }
 }
+
+/* User Guide Scrollspy Table of Contents */
+.guide-toc {
+  scroll-target-group: auto;
+}
+
+/* Use :is() so browsers without :target-current still honor .target-current */
+.guide-toc a:is(:target-current, .target-current) {
+  border-left-color: #10b981;
+  background-color: rgba(16, 185, 129, 0.08);
+  color: #065f46;
+  font-weight: 600;
+}
+
+html.dark .guide-toc a:is(:target-current, .target-current) {
+  border-left-color: #34d399;
+  background-color: rgba(16, 185, 129, 0.14);
+  color: #6ee7b7;
+}
+
+/* User Guide Native <details> Accordion */
+.guide-faq details > summary {
+  list-style: none;
+}
+
+.guide-faq details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.guide-faq details > summary .guide-chevron {
+  transform: rotate(-90deg);
+}
+
+.guide-faq details[open] > summary .guide-chevron {
+  transform: rotate(0deg);
+}
+
+.guide-faq details::details-content {
+  interpolate-size: allow-keywords;
+  overflow: clip;
+  contain: layout;
+}
+
+.guide-faq details:not([open])::details-content {
+  block-size: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .guide-faq details > summary .guide-chevron {
+    transition: transform 0.2s ease;
+  }
+
+  .guide-faq details::details-content {
+    transition: block-size, content-visibility, display;
+    transition-duration: 0.25s;
+    transition-timing-function: ease-in-out;
+    transition-behavior: allow-discrete;
+  }
+}

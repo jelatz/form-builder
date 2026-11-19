@@ -128,6 +128,16 @@ test('parseAppRoute: parses top-level workspace routes and trailing slashes', ()
     kind: 'workspace',
     mode: 'schema',
   });
+
+  assert.deepEqual(parseAppRoute('/guide'), {
+    kind: 'workspace',
+    mode: 'guide',
+  });
+
+  assert.deepEqual(parseAppRoute('/GUIDE/'), {
+    kind: 'workspace',
+    mode: 'guide',
+  });
 });
 
 test('parseAppRoute: parses form-scoped routes and preserves decoded formId casing', () => {
@@ -237,10 +247,12 @@ test('buildWorkspacePath: builds paths without formId across all workspace modes
   assert.equal(buildWorkspacePath('preview'), '/forms');
   assert.equal(buildWorkspacePath('submissions'), '/forms');
   assert.equal(buildWorkspacePath('integrations'), '/forms');
+  assert.equal(buildWorkspacePath('guide'), '/guide');
 
   // Whitespace-only formId behaves like omitted formId
   assert.equal(buildWorkspacePath('edit', '   '), '/forms');
   assert.equal(buildWorkspacePath('schema', '   '), '/schema');
+  assert.equal(buildWorkspacePath('guide', '   '), '/guide');
 });
 
 test('buildWorkspacePath: builds paths with formId including trimming and URL encoding', () => {
@@ -251,6 +263,7 @@ test('buildWorkspacePath: builds paths with formId including trimming and URL en
     buildWorkspacePath('submissions_explorer', 'form-1'),
     '/submissions',
   );
+  assert.equal(buildWorkspacePath('guide', 'form-1'), '/guide');
 
   assert.equal(buildWorkspacePath('form_detail', 'form-1'), '/forms/form-1');
   assert.equal(buildWorkspacePath('edit', 'form-1'), '/forms/form-1/edit');
@@ -301,8 +314,8 @@ test('buildWorkspacePath + parseAppRoute: round-trips encoded form-scoped routes
   }
 });
 
-test('isFormScopedMode: accurately classifies all 10 WorkspaceMode values', () => {
-  assert.equal(WORKSPACE_MODES.length, 10);
+test('isFormScopedMode: accurately classifies all 11 WorkspaceMode values', () => {
+  assert.equal(WORKSPACE_MODES.length, 11);
 
   const expected: Record<WorkspaceMode, boolean> = {
     dashboard: false,
@@ -315,6 +328,7 @@ test('isFormScopedMode: accurately classifies all 10 WorkspaceMode values', () =
     integrations: true,
     submissions_explorer: false,
     schema: true,
+    guide: false,
   };
 
   for (const mode of WORKSPACE_MODES) {

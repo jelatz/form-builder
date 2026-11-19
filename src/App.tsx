@@ -106,6 +106,11 @@ const SchemaIoPanel = lazy(() =>
     default: m.SchemaIoPanel,
   })),
 );
+const UserGuidePanel = lazy(() =>
+  import('./features/user-guide').then((m) => ({
+    default: m.UserGuidePanel,
+  })),
+);
 
 export type { WorkspaceMode };
 
@@ -364,6 +369,7 @@ export default function App() {
   const [activeTenantId, setActiveTenantId] = useState<string>('');
   const [activeFormId, setActiveFormId] = useState<string>('');
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
+  const [formsTenantFilter, setFormsTenantFilter] = useState<string>('ALL');
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -450,6 +456,7 @@ export default function App() {
       schema: activeForm
         ? `Schema: ${activeForm.title} · FormBuilder`
         : 'Schema JSON · FormBuilder',
+      guide: 'User Guide · FormBuilder',
     };
     document.title = modeTitles[activeMode];
   }, [route, authSession, activeMode, activeForm]);
@@ -464,7 +471,6 @@ export default function App() {
     const nextPath = buildWorkspacePath(nextMode, effectiveFormId);
     navigatePath(nextPath, options);
   };
-  const [formsTenantFilter, setFormsTenantFilter] = useState<string>('ALL');
   const [isSidebarMinimized, setIsSidebarMinimized] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false,
   );
@@ -707,6 +713,11 @@ export default function App() {
   const userIsSuperadmin = checkIsSuperadmin(authSession?.user);
   const canManageTenantAdmin =
     userIsSuperadmin || authSession?.user.role === 'tenant_admin';
+
+  const openFormsDirectory = () => {
+    setFormsTenantFilter(userIsSuperadmin ? 'ALL' : (activeTenant?.id ?? ''));
+    navigateWorkspace('forms');
+  };
 
   const activeHistory = activeForm
     ? (historyByForm[activeForm.id] ?? { past: [], future: [] })
@@ -1876,12 +1887,7 @@ export default function App() {
             <Tooltip content={`${userIsSuperadmin ? 'All Forms' : 'Forms'} · ${forms.length}`} side="right" disabled={!isSidebarMinimized} className="flex w-full">
               <button
                 type="button"
-                onClick={() => {
-                  setFormsTenantFilter(
-                    userIsSuperadmin ? 'ALL' : (activeTenant?.id ?? ''),
-                  );
-                  navigateWorkspace('forms');
-                }}
+                onClick={openFormsDirectory}
                 aria-label={userIsSuperadmin ? 'All Forms' : 'Forms'}
                 className={
                   isSidebarMinimized
@@ -2013,6 +2019,45 @@ export default function App() {
                 </svg>
                 {!isSidebarMinimized && (
                   <span className="truncate">Schema JSON</span>
+                )}
+              </button>
+            </Tooltip>
+
+            {/* Mode 5: User Guide */}
+            <Tooltip content="User Guide" side="right" disabled={!isSidebarMinimized} className="flex w-full">
+              <button
+                type="button"
+                onClick={() => navigateWorkspace('guide')}
+                aria-label="User Guide"
+                className={
+                  isSidebarMinimized
+                    ? `w-10 h-9 mx-auto rounded-md flex items-center justify-center relative transition-colors cursor-pointer ${
+                        activeMode === 'guide'
+                          ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                          : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
+                      }`
+                    : `w-full h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-2.5 transition-colors cursor-pointer ${
+                        activeMode === 'guide'
+                          ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950'
+                          : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800'
+                      }`
+                }
+              >
+                <svg
+                  className="w-4 h-4 shrink-0"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+                </svg>
+                {!isSidebarMinimized && (
+                  <span className="truncate">User Guide</span>
                 )}
               </button>
             </Tooltip>
@@ -2231,6 +2276,21 @@ export default function App() {
                 </span>
                 <span className="hidden sm:inline-flex">
                   <Badge variant="neutral">{submissions.length} total</Badge>
+                </span>
+              </div>
+            ) : activeMode === 'guide' ? (
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="font-semibold text-xs sm:text-sm text-zinc-900 dark:text-zinc-100 truncate">
+                  User Guide
+                </span>
+                <span className="hidden sm:inline-flex">
+                  <Badge variant="neutral">
+                    {authSession.user.role === 'superadmin'
+                      ? 'Superadmin'
+                      : authSession.user.role === 'tenant_admin'
+                        ? 'Admin'
+                        : 'Member'}
+                  </Badge>
                 </span>
               </div>
             ) : (
@@ -2664,6 +2724,32 @@ export default function App() {
             <SchemaIoPanel
               schema={activeForm}
               onImportSchema={handleImportSchema}
+            />
+          </Suspense>
+        )}
+
+        {activeMode === 'guide' && (
+          <Suspense fallback={<WorkspaceViewSkeleton view="schema" />}>
+            <UserGuidePanel
+              userRole={authSession.user.role}
+              tenantName={activeTenant?.name}
+              tenantSlug={activeTenant?.slug}
+              hasActiveForm={Boolean(activeForm)}
+              onNavigate={(mode) => {
+                if (mode === 'forms') {
+                  openFormsDirectory();
+                  return;
+                }
+                navigateWorkspace(
+                  mode,
+                  mode === 'schema' ? activeForm?.id : undefined,
+                );
+              }}
+              onOpenActiveFormMode={
+                activeForm
+                  ? (mode) => navigateWorkspace(mode, activeForm.id)
+                  : undefined
+              }
             />
           </Suspense>
         )}
